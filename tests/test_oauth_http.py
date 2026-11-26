@@ -214,6 +214,92 @@ class OAuthHTTPTests(unittest.TestCase):
             })
         self.assertEqual(status,403)
 
+    def _new_approval_page(self, client):
+        q=urlencode({"response_type":"code","client_id":client,"redirect_uri":CALLBACK,
+                     "state":"new-independent-flow","resource":RESOURCE,"scope":"desktop:read",
+                     "code_challenge_method":"S256","code_challenge":CHALLENGE})
+        status, headers, page=self.request("GET","/oauth/authorize?"+q)
+        self.assertEqual(status,200)
+        request_id=re.search(rb'name="request_id" value="([^"]+)"',page).group(1).decode()
+        csrf=re.search(rb'name="csrf" value="([^"]+)"',page).group(1).decode()
+        return {"request_id":request_id,"csrf":csrf,
+                "password":self.owner_password}, headers["Set-Cookie"].split(";",1)[0]
+
+    def test_parallel_chrome_oauth_tabs_have_independent_cookies(self):
+        client=self.register()
+        first,first_cookie=self._new_approval_page(client)
+        second,second_cookie=self._new_approval_page(client)
+        self.assertNotEqual(first_cookie.split("=",1)[0],second_cookie.split("=",1)[0])
+        # Chrome sends cookies for both tabs: select by request, not last cookie.
+        all_cookies=first_cookie+"; "+second_cookie
+        for form in (first,second):
+            status,head,_=self.post("/oauth/approve",form,headers={
+                "Cookie":all_cookies,
+                "Origin":"https://rikagro.ru",
+                "Sec-Fetch-Site":"same-origin",
+            })
+            self.assertEqual(status,303)
+            self.assertIn("chatgpt.com",head["Location"])
+
+    def test_android_cookie_missing_same_origin_fallback(self):
+        client=self.register()
+        form,_=self._new_approval_page(client)
+        status,headers,_=self.post("/oauth/approve",form,headers={
+            "Origin":"https://rikagro.ru",
+            "Sec-Fetch-Site":"same-origin",
+        })
+        self.assertEqual(status,303)
+        self.assertIn("chatgpt.com",headers["Location"])
+
+    def test_cookie_missing_without_proven_origin_denied_html(self):
+        client=self.register()
+        form,_=self._new_approval_page(client)
+        for headers in ({}, {"Origin":"https://rikagro.ru",
+                             "Sec-Fetch-Site":"cross-site"},
+                        {"Origin":"https://other.example",
+                         "Sec-Fetch-Site":"same-origin"}):
+            status,head,body=self.post("/oauth/approve",form,headers=headers)
+            self.assertEqual(status,403)
+            self.assertTrue(head["Content-Type"].startswith("text/html"))
+            self.assertIn("Вернуться в ChatGPT".encode(),body)
+            self.assertNotIn(self.owner_password.encode(),body)
+            self.assertIn("frame-ancestors 'none'",head["Content-Security-Policy"])
+
+    def test_same_site_origin_verified_with_missing_cookie(self):
+        client=self.register()
+        form,_=self._new_approval_page(client)
+        status,head,_=self.post("/oauth/approve",form,headers={
+            "Origin":"https://rikagro.ru", "Sec-Fetch-Site":"same-site",
+        })
+        self.assertEqual(status,303)
+        self.assertIn("chatgpt.com",head["Location"])
+
+    def test_bad_cookie_never_uses_browser_fallback(self):
+        client=self.register()
+        form,cookie=self._new_approval_page(client)
+        name=cookie.split("=",1)[0]
+        status,head,body=self.post("/oauth/approve",form,headers={
+            "Cookie":name+"=wrong-but-syntactically-valid-abcdef1234567890",
+            "Origin":"https://rikagro.ru",
+            "Sec-Fetch-Site":"same-origin",
+        })
+        self.assertEqual(status,403)
+        self.assertTrue(head["Content-Type"].startswith("text/html"))
+        self.assertIn("Сессия авторизации".encode(),body)
+
+    def test_incorrect_password_renders_safe_error_page(self):
+        client=self.register()
+        form,cookie=self._new_approval_page(client)
+        status,head,body=self.post("/oauth/approve",{**form,"password":"wrong"},
+                                    headers={"Cookie":cookie,
+                                             "Origin":"https://rikagro.ru",
+                                             "Sec-Fetch-Site":"same-origin"})
+        self.assertEqual(status,403)
+        self.assertEqual(head["Content-Type"],"text/html; charset=utf-8")
+        self.assertIn("Пароль не прошёл проверку".encode(),body)
+        self.assertNotIn("wrong".encode(),body)
+        self.assertIn("no-store",head["Cache-Control"])
+
     def test_unregistered_callback_rejected_before_login(self):
         client=self.register()
         q=urlencode({"response_type":"code","client_id":client,

@@ -90,3 +90,12 @@ No embedded credentials; per-device authentication; least privilege; explicit ap
 - [x] Production OAuth service and HTTPS route deployment verification
 - [x] Update private ChatGPT plugin to version 0.1.1
 - [ ] Owner sign-in and genuine tool-call verification from ChatGPT
+
+## ChatGPT OAuth Android browser compatibility
+
+- [x] Investigated two rejected approvals with zero password validation
+- [x] Per-request Secure/HttpOnly cookies for concurrent browser flows
+- [x] Strict same-origin, server-side CSRF verified mobile cookie fallback
+- [x] Safe Russian error page, retry instruction and redacted diagnostics
+- [x] Regression tests for wrong cookie, origin, CSRF and parallel tabs
+- [ ] Deploy and verify Chrome login with the owner

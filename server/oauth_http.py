@@ -14,6 +14,7 @@ import http.client
 from http.cookies import SimpleCookie
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 import json
+import logging
 import os
 from pathlib import Path
 import re
@@ -26,7 +27,7 @@ from panel.auth import PanelAuth
 from server.gateway import GatewayRegistry
 from server.gateway_policy import RateLimiter
 from server.oauth_store import (
-    ACCESS_TTL, ISSUER, RESOURCE, SCOPE, OAuthError, OAuthStore,
+    ACCESS_TTL, ISSUER, RESOURCE, SCOPE, OAuthError, OAuthStore, digest,
 )
 
 MAX_JSON = 8192
@@ -52,7 +53,15 @@ RESOURCE_METADATA = {
     "bearer_methods_supported": ["header"],
 }
 
-COOKIE_NAME = "__Host-lunexpc_oauth"
+COOKIE_PREFIX = "__Host-lunexpc_oauth_"
+
+
+def _cookie_name(request_id):
+    # Distinct cookies keep parallel ChatGPT authorization tabs independent.
+    # Do not leak random request IDs in cookie names.
+    return COOKIE_PREFIX + digest(request_id)[:20]
+
+
 AUTH_CHALLENGE = (f'Bearer resource_metadata="{ISSUER}'
                   f'/.well-known/oauth-protected-resource/lunexpc-mcp", '
                   f'scope="{SCOPE}"')
@@ -132,6 +141,53 @@ def make_handler(store, owner_file, private_gateway_key, gateway_registry,
                                           ensure_ascii=False), headers=headers)
 
         def _failure(self, exc):
+            if urlsplit(self.path).path == "/oauth/approve":
+                # Internal logs contain only fixed reason categories, never
+                # passwords, client IDs, IPs, cookies, callback URLs or tokens.
+                category = exc.reason if exc.reason in {
+                    "invalid_form", "invalid_cookie", "unknown_request",
+                    "expired_request", "attempt_limit", "csrf_mismatch",
+                    "missing_cookie", "cookie_mismatch", "password_mismatch",
+                    "origin_rejected", "fetch_site_rejected",
+                    "unspecified",
+                } else "unspecified"
+                logging.warning("oauth_approval_rejected reason=%s status=%d",
+                                category, exc.status)
+                # A browser form expects HTML, not an OAuth JSON error object.
+                # Explain how to start a fresh login; never echo user input.
+                heading = "Не удалось подтвердить вход"
+                hint = ("Вернись в ChatGPT, заново запусти подключение "
+                        "LunexPCControl и открой новую страницу входа.")
+                if category == "password_mismatch":
+                    hint = ("Пароль не прошёл проверку. Убедись, что используешь "
+                            "пароль портала LunexPCControl, затем начни "
+                            "подключение заново.")
+                elif category in ("missing_cookie", "cookie_mismatch",
+                                  "csrf_mismatch", "expired_request",
+                                  "unknown_request"):
+                    hint = ("Сессия авторизации недоступна или устарела. "
+                            "Вернись в ChatGPT и заново начни подключение.")
+                page = f"""<!doctype html><html lang="ru"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LunexPCControl — вход не подтверждён</title>
+<style>
+body{{margin:0;background:#101b2b;color:#e6f2ff;font:16px system-ui;padding:1.3rem}}
+main{{max-width:520px;margin:3rem auto;padding:1.5rem;background:#182940;border-radius:16px}}
+p{{line-height:1.5}}a{{display:inline-block;padding:14px 18px;background:#197d61;
+color:white;text-decoration:none;border-radius:10px;margin-top:1rem}}
+small{{color:#a7bfd2}}
+</style></head><body><main><h1>{heading}</h1><p>{hint}</p>
+<a href="https://chatgpt.com/plugins">Вернуться в ChatGPT</a>
+<p><small>Не отправляй пароль в чат. Защита доступа осталась включённой.</small></p>
+</main></body></html>"""
+                self._send(exc.status, page, "text/html; charset=utf-8",
+                           headers={
+                               "Content-Security-Policy":
+                                   "default-src 'none'; style-src 'unsafe-inline'; "
+                                   "base-uri 'none'; frame-ancestors 'none'",
+                               "X-Frame-Options": "DENY",
+                           })
+                return
             self._json(exc.status, {"error": exc.code})
 
         def _body(self, max_bytes, expected_type):
@@ -201,7 +257,7 @@ required autocomplete="current-password">
 <p><small>Вводите пароль только на https://rikagro.ru.
 Не передавайте пароль или токены в чат.</small></p></main></body></html>'''
                     self._send(200, page, "text/html; charset=utf-8", headers={
-                        "Set-Cookie": f"{COOKIE_NAME}={flow['cookie']}; Path=/; Secure; HttpOnly; SameSite=Lax",
+                        "Set-Cookie": f"{_cookie_name(flow['request_id'])}={flow['cookie']}; Path=/; Max-Age=300; Secure; HttpOnly; SameSite=Lax",
                         "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
                         "X-Frame-Options": "DENY",
                     })
@@ -242,18 +298,33 @@ required autocomplete="current-password">
                         raise OAuthError("temporarily_unavailable", 429)
                     origin = self.headers.get("Origin")
                     if origin is not None and origin != ISSUER:
-                        raise OAuthError("access_denied", 403)
+                        raise OAuthError("access_denied", 403,
+                                         reason="origin_rejected")
                     fetch_site = self.headers.get("Sec-Fetch-Site")
-                    if fetch_site is not None and fetch_site not in ("same-origin", "none"):
-                        raise OAuthError("access_denied", 403)
+                    if (fetch_site is not None
+                            and fetch_site not in ("same-origin", "none")
+                            and not (fetch_site == "same-site" and origin == ISSUER)):
+                        raise OAuthError("access_denied", 403,
+                                         reason="fetch_site_rejected")
                     fields = _parse_urlencoded(
                         self._body(MAX_JSON, "application/x-www-form-urlencoded"))
                     if set(fields) != {"request_id", "csrf", "password"}:
                         raise OAuthError()
-                    cookie = self._get_cookie()
+                    cookie = self._get_cookie(fields["request_id"])
+                    # Some Android Chrome flows lose a transient cookie while
+                    # switching from ChatGPT to the browser. A *missing* cookie
+                    # may be tolerated only if the browser also proves its
+                    # exact same origin, and the hidden high-entropy CSRF token
+                    # matches the server-side pending authorization request.
+                    # An incorrect but PRESENT cookie is always rejected.
+                    fallback = (not cookie and origin == ISSUER
+                                and fetch_site in ("same-origin", "same-site"))
                     result = store.approve(fields["request_id"], fields["csrf"],
                                            cookie, fields["password"],
-                                           _read_secret(owner_file))
+                                           _read_secret(owner_file),
+                                           trusted_cookie_fallback=fallback)
+                    if fallback:
+                        logging.info("oauth_approval_browser_cookie_fallback")
                     redirect = result["redirect_uri"] + "?" + urlencode({
                         "code": result["code"],
                         "state": result["state"],
@@ -261,7 +332,7 @@ required autocomplete="current-password">
                     })
                     self._send(303, b"", "text/plain", headers={
                         "Location": redirect,
-                        "Set-Cookie": f"{COOKIE_NAME}=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax",
+                        "Set-Cookie": f"{_cookie_name(fields['request_id'])}=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax",
                     })
                 elif path.path == "/lunexpc-mcp":
                     self._mcp()
@@ -272,15 +343,16 @@ required autocomplete="current-password">
             except (OSError, sqlite3.Error, ValueError, http.client.HTTPException, TimeoutError):
                 self._failure(OAuthError("temporarily_unavailable", 503))
 
-        def _get_cookie(self):
+        def _get_cookie(self, request_id):
             raw = self.headers.get_all("Cookie", [])
-            if len(raw) != 1 or len(raw[0]) > 1024:
+            if len(raw) != 1 or len(raw[0]) > 2048:
                 return ""
             try:
                 cookie = SimpleCookie()
                 cookie.load(raw[0])
-                return cookie[COOKIE_NAME].value if COOKIE_NAME in cookie else ""
-            except (ValueError, KeyError):
+                name = _cookie_name(request_id)
+                return cookie[name].value if name in cookie else ""
+            except (ValueError, KeyError, TypeError):
                 return ""
 
         def _mcp(self):

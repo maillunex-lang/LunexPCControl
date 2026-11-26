@@ -153,6 +153,28 @@ class OAuthStoreTests(unittest.TestCase):
             self.store.token({"client_id":self.client,"grant_type":"authorization_code",
                               "redirect_uri":CALLBACK,"code_verifier":V,"code":auth["code"]})
 
+    def test_mobile_cookie_fallback_requires_explicit_flag_and_valid_csrf(self):
+        flow=self.start()
+        with self.assertRaises(OAuthError) as err:
+            self.store.approve(flow["request_id"],flow["csrf"],"",
+                               "correct-panel-password","correct-panel-password")
+        self.assertEqual(err.exception.reason,"missing_cookie")
+        with self.assertRaises(OAuthError) as err:
+            self.store.approve(flow["request_id"],"invalid-csrf-valid-looking-0123456789",
+                               "","correct-panel-password","correct-panel-password",
+                               trusted_cookie_fallback=True)
+        self.assertEqual(err.exception.reason,"csrf_mismatch")
+        with self.assertRaises(OAuthError) as err:
+            self.store.approve(flow["request_id"],flow["csrf"],
+                               "some-other-valid-cookie-0123456789",
+                               "correct-panel-password","correct-panel-password",
+                               trusted_cookie_fallback=True)
+        self.assertEqual(err.exception.reason,"cookie_mismatch")
+        code=self.store.approve(flow["request_id"],flow["csrf"],"",
+                                "correct-panel-password","correct-panel-password",
+                                trusted_cookie_fallback=True)
+        self.assertIn("code",code)
+
     def test_replay_refresh_does_not_resurrect_revoked_access(self):
         flow=self.start()
         issued=self.approve(flow)

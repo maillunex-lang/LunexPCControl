@@ -36,10 +36,12 @@ CALLBACK_RE = re.compile(r"/connector/oauth/[A-Za-z0-9_-]{6,128}\Z")
 
 
 class OAuthError(ValueError):
-    def __init__(self, code="invalid_request", status=400):
+    def __init__(self, code="invalid_request", status=400, *, reason="unspecified"):
         super().__init__(code)
         self.code = code
         self.status = status
+        # Fixed non-sensitive diagnostic categories only. Never store credentials.
+        self.reason = reason
 
 
 def digest(value: str) -> str:
@@ -187,15 +189,17 @@ class OAuthStore:
                 "client_name": row[0], "redirect_uri": redirect,
                 "scope": SCOPE}
 
-    def approve(self, request_id, csrf, cookie, password, owner_secret):
+    def approve(self, request_id, csrf, cookie, password, owner_secret,
+                *, trusted_cookie_fallback=False):
         if (any(not isinstance(x, str) for x in
                 (request_id, csrf, cookie, password, owner_secret))
                 or not TOKEN_RE.fullmatch(request_id)
-                or not TOKEN_RE.fullmatch(csrf)
-                or not TOKEN_RE.fullmatch(cookie)):
-            raise OAuthError("access_denied", 403)
+                or not TOKEN_RE.fullmatch(csrf)):
+            raise OAuthError("access_denied", 403, reason="invalid_form")
+        if cookie and not TOKEN_RE.fullmatch(cookie):
+            raise OAuthError("access_denied", 403, reason="invalid_cookie")
         now = int(self.clock())
-        denial = False
+        reason = None
         result = None
         with self._db() as db:
             db.execute("BEGIN IMMEDIATE")
@@ -203,15 +207,24 @@ class OAuthStore:
                                        challenge,state,expires,attempts
                                 FROM pending WHERE request_hash=?""",
                              (digest(request_id),)).fetchone()
-            if row is None or row[6] <= now or row[7] >= 5:
-                denial = True
+            if row is None:
+                reason = "unknown_request"
+            elif row[6] <= now:
+                reason = "expired_request"
+            elif row[7] >= 5:
+                reason = "attempt_limit"
             else:
+                # Each failed entry counts, even if an attacker does not know the CSRF.
                 db.execute("""UPDATE pending SET attempts=attempts+1
                               WHERE request_hash=?""", (digest(request_id),))
-                if (not hmac.compare_digest(digest(csrf), row[0])
-                        or not hmac.compare_digest(digest(cookie), row[1])
-                        or not hmac.compare_digest(password, owner_secret)):
-                    denial = True
+                if not hmac.compare_digest(digest(csrf), row[0]):
+                    reason = "csrf_mismatch"
+                elif not cookie and not trusted_cookie_fallback:
+                    reason = "missing_cookie"
+                elif cookie and not hmac.compare_digest(digest(cookie), row[1]):
+                    reason = "cookie_mismatch"
+                elif not hmac.compare_digest(password, owner_secret):
+                    reason = "password_mismatch"
                 else:
                     db.execute("DELETE FROM pending WHERE request_hash=?",
                                (digest(request_id),))
@@ -220,8 +233,8 @@ class OAuthStore:
                                   VALUES(?,?,?,?,?)""",
                                (digest(code), row[2], row[3], row[4], now + CODE_TTL))
                     result = {"code": code, "redirect_uri": row[3], "state": row[5]}
-        if denial:
-            raise OAuthError("access_denied", 403)
+        if reason is not None:
+            raise OAuthError("access_denied", 403, reason=reason)
         return result
 
     def _issue_tokens(self, db, client, now):

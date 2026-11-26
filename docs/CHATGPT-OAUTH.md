@@ -132,3 +132,26 @@ The existing private plugin was updated in-place to version 0.1.1,
 preserving its URL, account scope and read-only tools. Manual custom MCP
 connections can use the same resource URL and OAuth discovery without
 installing an additional plugin.
+
+## Mobile Chrome consent fix (Alpha 0.1.2)
+
+An investigation of two real rejected approvals showed both were refused
+before checking the owner's password (zero recorded password-validation
+attempts). The earlier build used one transient cookie for all OAuth tabs and
+returned raw JSON for authorization failures.
+
+The mobile-compatible revision uses a distinct Secure, HttpOnly, SameSite=Lax
+cookie per authorization request, so parallel tabs and repeated ChatGPT
+connection attempts cannot overwrite each other's browser state. If a mobile
+browser drops a cookie during the app-to-browser transition, the owner may
+still approve using the server-side request ID and high-entropy CSRF token,
+but only with a verified exact same-origin Origin header and a compatible
+Sec-Fetch-Site browser header. A present but wrong cookie is never accepted.
+Cross-site origins and invalid CSRF tokens are rejected.
+
+Denied approvals now return a Russian HTML explanation and a link to start a
+new connection in ChatGPT. Server logs record only fixed failure categories
+such as cookie_mismatch, origin_rejected or password_mismatch. They never
+include secrets, user input, IP addresses, OAuth codes or redirects.
+
+As before, a real owner login in Chrome must be tested after deployment.
