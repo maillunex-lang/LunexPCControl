@@ -13,8 +13,8 @@ class BootstrapTests(unittest.TestCase):
         self.assertIn("Get-State", self.content)
 
     def test_pinned_isolated_install(self):
-        self.assertIn("git clone --no-checkout", self.content)
-        self.assertIn("checkout --detach $UpstreamCommit", self.content)
+        self.assertIn("'clone', '--no-checkout'", self.content)
+        self.assertIn("'checkout', '--detach', $UpstreamCommit", self.content)
         self.assertIn("-m venv $venvDir", self.content)
         self.assertNotIn("winget install", self.content)
 

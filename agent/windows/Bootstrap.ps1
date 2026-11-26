@@ -63,12 +63,19 @@ $venvDir = Join-Path $InstallRoot ".venv"
 if ($Install) {
     New-Item -ItemType Directory -Path $InstallRoot -Force | Out-Null
     if (Test-Path $repoDir) {
-        throw "Existing checkout detected at $repoDir. Refusing to overwrite it."
+        if (-not (Test-Path (Join-Path $repoDir '.git'))) {
+            throw "Unexpected existing folder at $repoDir; refusing to overwrite it."
+        }
+        $currentOrigin = (& git -C $repoDir remote get-url origin)
+        if ($LASTEXITCODE -ne 0 -or $currentOrigin.TrimEnd('/') -ne $UpstreamRepository.TrimEnd('/')) {
+            throw 'Existing checkout has unexpected remote; refusing to reuse it.'
+        }
+    } else {
+        $clone = Start-Process -FilePath (Get-Command git).Source -ArgumentList @('clone', '--no-checkout', '--', $UpstreamRepository, $repoDir) -NoNewWindow -Wait -PassThru
+        if ($clone.ExitCode -ne 0) { throw 'Clone failed' }
     }
-    & git clone --no-checkout -- $UpstreamRepository $repoDir
-    if ($LASTEXITCODE -ne 0) { throw 'Clone failed' }
-    & git -C $repoDir checkout --detach $UpstreamCommit
-    if ($LASTEXITCODE -ne 0) { throw 'Pinned checkout failed' }
+    $checkout = Start-Process -FilePath (Get-Command git).Source -ArgumentList @('-C', $repoDir, 'checkout', '--detach', $UpstreamCommit) -NoNewWindow -Wait -PassThru
+    if ($checkout.ExitCode -ne 0) { throw 'Pinned checkout failed' }
     & $state.PythonExecutable -m venv $venvDir
     if ($LASTEXITCODE -ne 0) { throw 'Virtualenv creation failed' }
     $pip = Join-Path $venvDir "Scripts\python.exe"
