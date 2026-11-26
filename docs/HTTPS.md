@@ -22,11 +22,13 @@ still return their original statuses.
 
 1. Dedicated unprivileged gateway service with a 0600 registry, approved
    device enrollment and auditable token rotation/revocation.
-2. Gateway-side per-client tool policy: screenshot-only by default, deny any
-   mouse, keyboard, PowerShell, filesystem, and unknown tool call. Upstream
-   ControlStatus may be visible; actual desktop consent is still mandatory.
-3. Request and connection rate limits, audit trail without token/body/PNG
-   leakage, bounded requests and responses, safe streaming behavior.
+2. Gateway-side tool policy is now implemented and tested: Screenshot and
+   ControlStatus only, fail-closed on unknown requests, no dangerous tool
+   calls forwarded to Windows. Complete a separate production security review,
+   and retain Windows-MCP's interactive desktop consent requirements.
+3. Rate limiting, concurrency bounds and private audit logging are now
+   implemented and tested. Before public use, add reverse-proxy IP limits,
+   audit-log rotation, retention controls, and sustained SSE load testing.
 4. Test an end-to-end remote screenshot, a bad token, revoked token, offline
    Windows agent and denial of prohibited tools through the actual HTTPS
    proxy. Confirm no external access to the raw TCP ports.

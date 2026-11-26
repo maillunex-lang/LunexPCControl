@@ -91,7 +91,7 @@ class GatewayTests(unittest.TestCase):
         return result
 
     def test_mcp_and_screenshot_result_passthrough(self):
-        code, headers, body = self.call("POST", body=b'{"jsonrpc":"2.0"}', headers={
+        code, headers, body = self.call("POST", body=b'{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"Screenshot","arguments":{}}}', headers={
             "Content-Type": "application/json", "Mcp-Session-Id": "client-session",
         })
         self.assertEqual(code, 200)

@@ -12,8 +12,12 @@ import secrets
 import sqlite3
 import os
 import stat
+import threading
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
+from server.gateway_policy import (AuditLog, RateLimiter, PolicyError,
+                                   inspect_request, filtered_response,
+                                   filtered_sse_event)
 
 MAX_BODY = 4 * 1024 * 1024
 MAX_RESPONSE = 16 * 1024 * 1024
@@ -121,7 +125,16 @@ class GatewayRegistry:
         return row
 
 
-def make_handler(registry, upstream_factory=http.client.HTTPConnection):
+def make_handler(registry, upstream_factory=http.client.HTTPConnection, *,
+                 rate_limiter=None, preauth_limiter=None, audit=None,
+                 max_active=8):
+    rate_limiter = rate_limiter or RateLimiter(limit=120, window=60)
+    preauth_limiter = preauth_limiter or RateLimiter(
+        limit=300, window=60, max_identities=16)
+    if max_active < 1:
+        raise ValueError("invalid concurrent request limit")
+    active_slots = threading.BoundedSemaphore(max_active)
+
     class GatewayHandler(BaseHTTPRequestHandler):
         protocol_version = "HTTP/1.1"
 
@@ -130,6 +143,10 @@ def make_handler(registry, upstream_factory=http.client.HTTPConnection):
             self.send_header("Content-Type", media)
             self.send_header("Content-Length", str(len(data)))
             self.send_header("Cache-Control", "no-store")
+            if code >= 400:
+                # Do not reuse a connection with an unread rejected POST body.
+                self.send_header("Connection", "close")
+                self.close_connection = True
             self.end_headers()
             if self.command != "HEAD":
                 self.wfile.write(data)
@@ -146,15 +163,38 @@ def make_handler(registry, upstream_factory=http.client.HTTPConnection):
         def do_HEAD(self):
             self._respond(405)
 
+        def _audit(self, event, category="other", status=0):
+            if audit is not None:
+                audit.record(event, category, status)
+
         def _handle(self):
+            if not active_slots.acquire(blocking=False):
+                self._respond(503, b"Gateway busy")
+                self._audit("over_capacity", status=503)
+                self.close_connection = True
+                return
+            try:
+                self._handle_inner()
+            finally:
+                active_slots.release()
+
+        def _handle_inner(self):
             # Only /devices/<device>/mcp and its query are permitted.
             split = urlsplit(self.path)
             match = re.fullmatch(r"/devices/([A-Za-z0-9_-]{1,64})/mcp", split.path)
             if not match or split.fragment or split.username or split.password:
                 self._respond(404)
                 return
+            # Global pre-auth throttle. No client token or remote user string
+            # is used as a rate-limit key.
+            if not preauth_limiter.allow("gateway"):
+                self._respond(429)
+                self._audit("rate_limited", status=429)
+                self.close_connection = True
+                return
             if len(self.headers.get_all("Authorization", [])) != 1:
                 self._respond(401)
+                self._audit("unauthorized", status=401)
                 return
             if len(self.headers.get_all("Content-Length", [])) > 1 or len(self.headers.get_all("Transfer-Encoding", [])) > 1:
                 self._respond(400)
@@ -167,10 +207,17 @@ def make_handler(registry, upstream_factory=http.client.HTTPConnection):
             auth = self.headers.get("Authorization", "")
             if not auth.startswith("Bearer ") or not auth[7:] or "," in auth:
                 self._respond(401)
+                self._audit("unauthorized", status=401)
                 return
             route = registry.authenticate(match.group(1), auth[7:])
             if route is None:
                 self._respond(403)
+                self._audit("unauthorized", status=403)
+                return
+            if not rate_limiter.allow(registry.digest(auth[7:])):
+                self._respond(429)
+                self._audit("rate_limited", status=429)
+                self.close_connection = True
                 return
             # Defend against ambiguous request framing before proxying.
             if any(k.lower() == "transfer-encoding" for k in self.headers.keys()):
@@ -199,6 +246,15 @@ def make_handler(registry, upstream_factory=http.client.HTTPConnection):
             if len(split.query) > 2048 or any(c in split.query for c in "\r\n"):
                 self._respond(400)
                 return
+            method_category = "other"
+            if self.command == "POST":
+                try:
+                    method_category = inspect_request(body)
+                except PolicyError as rejected:
+                    self._respond(rejected.status, b"MCP request denied")
+                    self._audit("invalid" if rejected.category == "invalid"
+                                else "blocked", "denied", rejected.status)
+                    return
             request_headers = {
                 key: value for key, value in self.headers.items()
                 if key.lower() in PASSTHROUGH_HEADERS
@@ -221,6 +277,10 @@ def make_handler(registry, upstream_factory=http.client.HTTPConnection):
                 media = response.getheader("Content-Type", "")
                 is_stream = "text/event-stream" in media.lower()
                 if is_stream and response.status == 200:
+                    # Never forward an unfiltered tool listing or capability
+                    # advertisement. Accumulate only complete SSE events.
+                    filter_events = method_category in ("list", "initialize")
+                    pending = bytearray()
                     # Send headers immediately; never buffer an unbounded SSE stream.
                     self.send_response(response.status)
                     for key, value in response.getheaders():
@@ -239,13 +299,37 @@ def make_handler(registry, upstream_factory=http.client.HTTPConnection):
                         chunk = response.read1(65536)
                         if not chunk:
                             break
-                        self.wfile.write(chunk)
-                        self.wfile.flush()
+                        if filter_events:
+                            pending.extend(chunk)
+                            pending[:] = pending.replace(b"\r\n", b"\n")
+                            while b"\n\n" in pending:
+                                index = pending.index(b"\n\n") + 2
+                                event = bytes(pending[:index])
+                                del pending[:index]
+                                framed = filtered_sse_event(event, method_category)
+                                self.wfile.write(framed)
+                                self.wfile.flush()
+                            if len(pending) > MAX_RESPONSE:
+                                self.close_connection = True
+                                return
+                        else:
+                            self.wfile.write(chunk)
+                            self.wfile.flush()
+                    if filter_events and pending:
+                        self.close_connection = True
+                        return
                 else:
                     output = response.read(MAX_RESPONSE + 1)
                     if len(output) > MAX_RESPONSE:
                         self._respond(502, b"upstream response size exceeded")
                         return
+                    if response.status == 200 and method_category in ("list", "initialize"):
+                        try:
+                            output = filtered_response(output, method_category)
+                        except PolicyError:
+                            self._respond(502, b"Invalid upstream MCP response")
+                            self._audit("upstream_error", method_category, 502)
+                            return
                     self.send_response(response.status)
                     for key, value in response.getheaders():
                         if key.lower() in RESPONSE_HEADERS and "\r" not in value and "\n" not in value:
@@ -254,6 +338,12 @@ def make_handler(registry, upstream_factory=http.client.HTTPConnection):
                     self.send_header("X-Content-Type-Options", "nosniff")
                     self.end_headers()
                     self.wfile.write(output)
+                self._audit("allowed" if response.status < 400 else "upstream_error",
+                            method_category, response.status)
+            except PolicyError:
+                # SSE response headers may have been sent; abort safely.
+                self._audit("upstream_error", method_category, 502)
+                self.close_connection = True
             except (BrokenPipeError, ConnectionResetError):
                 # Client disconnected during SSE; shut down only its upstream socket.
                 self.close_connection = True
@@ -265,6 +355,7 @@ def make_handler(registry, upstream_factory=http.client.HTTPConnection):
                     except OSError:
                         pass
                 self.close_connection = True
+                self._audit("upstream_error", method_category, 502)
             finally:
                 if conn is not None:
                     conn.close()
@@ -276,11 +367,14 @@ def make_handler(registry, upstream_factory=http.client.HTTPConnection):
     return GatewayHandler
 
 
-def serve(registry_path, bind="127.0.0.1", port=18880):
+def serve(registry_path, bind="127.0.0.1", port=18880, audit_path=None):
+    if not audit_path:
+        raise ValueError("a private audit path is required when serving MCP")
     if bind not in ("127.0.0.1", "::1"):
         raise ValueError("gateway must remain loopback-only behind TLS proxy")
     registry = GatewayRegistry(registry_path)
-    httpd = ThreadingHTTPServer((bind, port), make_handler(registry))
+    audit = AuditLog(audit_path) if audit_path else None
+    httpd = ThreadingHTTPServer((bind, port), make_handler(registry, audit=audit))
     httpd.serve_forever()
 
 
@@ -289,5 +383,7 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--registry", required=True)
     parser.add_argument("--port", type=int, default=18880)
+    parser.add_argument("--audit", required=True,
+                        help="private JSONL audit log path (0600)")
     args = parser.parse_args()
-    serve(args.registry, port=args.port)
+    serve(args.registry, port=args.port, audit_path=args.audit)

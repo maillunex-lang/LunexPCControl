@@ -32,7 +32,7 @@ class TestGatewaySeparation(unittest.TestCase):
             try:
                 def query(token):
                     c=http.client.HTTPConnection('127.0.0.1',gateway.server_port,timeout=3)
-                    c.request('POST','/devices/pc/mcp',b'{"jsonrpc":"2.0"}',{'Authorization':'Bearer '+token,'Content-Type':'application/json'})
+                    c.request('POST','/devices/pc/mcp',b'{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"Screenshot","arguments":{}}}',{'Authorization':'Bearer '+token,'Content-Type':'application/json'})
                     response=c.getresponse();status=response.status; data=response.read();c.close();return status,data
                 self.assertEqual(query('wrong')[0],403)
                 status,data=query(client_key)

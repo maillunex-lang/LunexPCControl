@@ -54,7 +54,7 @@ class TestGatewayLiveProtocol(unittest.TestCase):
                     return status,json.loads(payload) if status==200 else {},headers
                 status,obj,headers=rpc('initialize')
                 self.assertEqual(status,200)
-                self.assertEqual(obj['result']['serverInfo']['name'],'test-windows-agent')
+                self.assertEqual(obj['result']['serverInfo']['name'],'LunexPCControl')
                 self.assertEqual(headers.get('Mcp-Session-Id'),'test-session')
                 self.assertEqual(upstream.auth,'Bearer agent-only-'+'y'*35)
                 status,obj,_=rpc('tools/list',2)
