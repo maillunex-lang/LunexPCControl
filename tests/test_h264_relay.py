@@ -47,6 +47,42 @@ class H264RelayTests(unittest.TestCase):
         self.assertEqual(conn.route,("GET","/video/h264/balanced.mp4"))
         self.assertEqual(conn.headers["Host"],"127.0.0.1:18790")
         self.assertEqual(resp.status,200)
+    def test_higher_profile_falls_back_to_data_on_encoder_503(self):
+        class SimulatedResponse:
+            def __init__(self,code):
+                self.status=code
+            def getheader(self,name,default=""):
+                return "video/mp4" if name=="Content-Type" else default
+            def read(self,n):
+                return b"Unavailable"
+        seen=[]
+        class SimulatedConnection:
+            def __init__(self,host,port,timeout):
+                self.route=None
+            def request(self,method,path,headers):
+                self.route=path
+                seen.append(path)
+            def getresponse(self):
+                return SimulatedResponse(503 if "balanced" in self.route else 200)
+            def close(self):pass
+        conn,resp=open_h264_stream(self.registry,"lunex","balanced",SimulatedConnection)
+        self.assertEqual(resp.status,200)
+        self.assertEqual(seen,["/video/h264/balanced.mp4","/video/h264/data.mp4"])
+
+    def test_no_fallback_on_401_credential_refusal(self):
+        class Response:
+            status=401
+            def read(self,n):return b"Unauthorized"
+        seen=[]
+        class Connection:
+            def __init__(self,*args,**kwargs):pass
+            def request(self,method,path,headers):seen.append(path)
+            def getresponse(self):return Response()
+            def close(self):pass
+        with self.assertRaises(LiveError):
+            open_h264_stream(self.registry,"lunex","quality",Connection)
+        self.assertEqual(seen,["/video/h264/quality.mp4"])
+
     def test_mse_ui_and_fallback_present(self):
         html=live_page()
         for element in (b'value="h264" selected',b'MediaSource',

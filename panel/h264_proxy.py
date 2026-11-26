@@ -52,27 +52,35 @@ def video_route(registry, device, profile):
 
 
 def open_h264_stream(registry, device, profile, connection_factory=None):
+    # Automatic in-codec fallback for Windows RDP display configurations:
+    # never lower authorization; retry 480p if a higher encode mode refuses.
     video_port,video_key=video_route(registry,device,profile)
     if connection_factory is None:
         connection_factory=http.client.HTTPConnection
-    conn=connection_factory("127.0.0.1",video_port,timeout=18)
-    try:
-        conn.request("GET",f"/video/h264/{profile}.mp4",headers={
-            "Authorization":"Bearer "+video_key,
-            "Accept":"video/mp4",
-            "Host":"127.0.0.1:18790",
-        })
-        response=conn.getresponse()
-        if response.status!=200:
-            response.read(min(128,MAX_H264_BYTES))
-            raise LiveError("Windows video agent unavailable")
-        media=response.getheader("Content-Type","")
-        if not media.startswith("video/mp4"):
-            raise LiveError("unsupported H264 response")
-        return conn,response
-    except (OSError,TimeoutError,http.client.HTTPException) as exc:
-        conn.close()
-        raise LiveError("video tunnel unavailable") from exc
-    except Exception:
-        conn.close()
-        raise
+    attempts = (profile, "data") if profile != "data" else (profile,)
+    for index, requested_profile in enumerate(attempts):
+        conn=connection_factory("127.0.0.1",video_port,timeout=18)
+        try:
+            conn.request("GET",f"/video/h264/{requested_profile}.mp4",headers={
+                "Authorization":"Bearer "+video_key,
+                "Accept":"video/mp4",
+                "Host":"127.0.0.1:18790",
+            })
+            response=conn.getresponse()
+            if response.status!=200:
+                response.read(min(128,MAX_H264_BYTES))
+                if response.status == 503 and index + 1 < len(attempts):
+                    conn.close()
+                    continue
+                raise LiveError("Windows video agent unavailable")
+            media=response.getheader("Content-Type","")
+            if not media.startswith("video/mp4"):
+                raise LiveError("unsupported H264 response")
+            return conn,response
+        except (OSError,TimeoutError,http.client.HTTPException) as exc:
+            conn.close()
+            raise LiveError("video tunnel unavailable") from exc
+        except Exception:
+            conn.close()
+            raise
+    raise LiveError("Windows H264 encoder unavailable")
