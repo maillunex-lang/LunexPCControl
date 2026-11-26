@@ -50,14 +50,10 @@ try {
  '-o','ConnectTimeout=10','-o','ServerAliveInterval=20','-o','ServerAliveCountMax=3',
  '-i',$identity,'-N','-T','-R',$forward,'lunexpc-tunnel@195.216.188.80')
  $tunnel=Start-Process -FilePath $ssh.Source -ArgumentList $sshArgs -WindowStyle Hidden -PassThru
- $connected=$false
- for($i=0;$i -lt 36;$i++){
-  if($tunnel.HasExited){throw ('Reverse tunnel exited '+$tunnel.ExitCode)}
-  $probe=Test-NetConnection -ComputerName 195.216.188.80 -Port 22 -InformationLevel Quiet -WarningAction SilentlyContinue
-  if($probe){$connected=$true;break}
-  Start-Sleep -Milliseconds 500
- }
- if(-not $connected){throw 'SSH transport network not ready'}
+ # The tunnel's ssh process staying alive is not proof of the remote listener.
+ # The VPS test runner separately verifies localhost:23789 before probing MCP.
+ Start-Sleep -Seconds 3
+ if($tunnel.HasExited){throw ('Reverse tunnel exited '+$tunnel.ExitCode)}
  Write-Output 'REMOTE-MCP-WINDOWS-READY'
  Start-Sleep -Seconds $DurationSeconds
 } finally {

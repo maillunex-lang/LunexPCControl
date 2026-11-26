@@ -11,6 +11,9 @@ class RemoteSmokeRunnerTests(unittest.TestCase):
   self.assertIn("Remove-Item -LiteralPath $incoming",SRC)
   self.assertIn("Stop-Process",SRC)
   self.assertIn("DurationSeconds",SRC)
+ def test_does_not_confuse_ssh_port_with_reverse_forward(self):
+  self.assertNotIn('Test-NetConnection',SRC)
+  self.assertIn('VPS test runner separately verifies',SRC)
  def test_no_persistence(self):
   self.assertNotIn("schtasks",SRC)
   self.assertNotIn("New-NetFirewallRule",SRC)
