@@ -230,7 +230,7 @@ class PanelHandler(BaseHTTPRequestHandler):
         if not self._authenticated():
             return
         parsed = urlsplit(self.path)
-        if parsed.query or parsed.fragment:
+        if parsed.fragment or (parsed.query and parsed.path not in ("/", "/devices", "/live", "/monitor")):
             self._write(404, b"Not found", "text/plain")
             return
         # Preserve existing private Termalin routes and proxy-public /portalmcp/.

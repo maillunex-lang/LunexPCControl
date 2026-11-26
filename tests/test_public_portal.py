@@ -59,3 +59,10 @@ class PortalPublicHTTPTests(unittest.TestCase):
         hdr["Origin"]="https://wrong.example"
         self.assertEqual(self.request(endpoint,"rikagro.ru",True,"POST",payload,hdr)[0],403)
         self.assertEqual(self.request(endpoint,"attacker.example")[0],403)
+
+    def test_browser_tracking_query_on_html_only(self):
+        for path in ("/", "/devices", "/live", "/monitor"):
+            url=path+"?utm_source=chatgpt.com"
+            self.assertEqual(self.request(url,"rikagro.ru",False)[0],401)
+            self.assertEqual(self.request(url,"rikagro.ru")[0],200)
+        self.assertEqual(self.request("/api/screens?utm_source=test","rikagro.ru")[0],404)
