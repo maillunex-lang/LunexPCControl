@@ -7,6 +7,7 @@ import tempfile
 import threading
 import unittest
 from unittest.mock import patch
+from panel.live_view import LiveError
 
 from panel.auth import PanelAuth
 from panel.server import PanelHandler
@@ -82,6 +83,20 @@ class H264PortalHttpTests(unittest.TestCase):
             self.assertEqual(upstream.call_count,2)
             self.assertEqual(self.get({"Authorization":self.auth,"X-LunexPC-Video":"active"},
                                       path=url+"?tracking=1")[0],404)
+
+    def test_agent_down_returns_503_and_releases_viewer_slot(self):
+        from panel import server
+        with patch.object(server,"open_h264_stream",side_effect=LiveError("encoder offline")):
+            h={"Authorization":self.auth,"X-LunexPC-Video":"active"}
+            self.assertEqual(self.get(h)[0],503)
+            self.assertEqual(self.get(h)[0],503)
+
+    def test_upstream_protocol_failure_returns_503(self):
+        from panel import server
+        from http.client import HTTPException
+        with patch.object(server,"open_h264_stream",side_effect=HTTPException("bad upstream")):
+            h={"Authorization":self.auth,"X-LunexPC-Video":"active"}
+            self.assertEqual(self.get(h)[0],503)
 
     def test_over_capacity_stream_is_denied(self):
         self.http.h264_gate.acquire()

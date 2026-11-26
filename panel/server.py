@@ -11,6 +11,7 @@ import json
 import os
 import sqlite3
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from http.client import HTTPException
 from pathlib import Path
 import time
 from urllib.parse import urlsplit
@@ -350,7 +351,7 @@ class PanelHandler(BaseHTTPRequestHandler):
         try:
             try:
                 conn,upstream=open_h264_stream(self._registry(),device,profile)
-            except (LiveError, OSError, sqlite3.Error, http.client.HTTPException):
+            except (LiveError, OSError, sqlite3.Error, HTTPException):
                 self._write(503,b"Windows H264 service unavailable","text/plain")
                 return
             self.send_response(200)
