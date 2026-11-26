@@ -27,6 +27,11 @@ $account = [Security.Principal.WindowsIdentity]::GetCurrent().Name
 & icacls.exe $folder /inheritance:r /grant:r "$($account):(OI)(CI)F" 'SYSTEM:(OI)(CI)F' | Out-Null
 if ($LASTEXITCODE -ne 0) { throw 'Could not restrict SSH identity folder ACL' }
 $export = 'C:\Users\Public\LunexPCControl-device.pub'
-& $python $ScriptPath --folder $folder --public-export $export
+$trustedHostKey = 'C:\Users\Public\LunexPCControl-vps-hostkey.pub'
+if (Test-Path -LiteralPath $trustedHostKey -PathType Leaf) {
+    & $python $ScriptPath --folder $folder --public-export $export --host-key-file $trustedHostKey
+} else {
+    & $python $ScriptPath --folder $folder --public-export $export
+}
 if ($LASTEXITCODE -ne 0) { throw 'SSH key provisioning failed' }
 Write-Output 'SSH identity prepared for current user. No connection opened.'

@@ -70,16 +70,22 @@ def generate_identity(folder: pathlib.Path, comment: str) -> pathlib.Path:
 def provision(folder: pathlib.Path, public_export: pathlib.Path,
               host: str = EXPECTED_VPS,
               expected: str = EXPECTED_HOST_FINGERPRINT,
-              ssh_keyscan: str = "ssh-keyscan") -> str:
+              ssh_keyscan: str = "ssh-keyscan",
+              host_key_file: pathlib.Path | None = None) -> str:
     ipaddress.ip_address(host)
     folder.mkdir(parents=True, exist_ok=True)
     # Do not derive secret material from weak PRNGs or reveal key to stdout.
     pub = generate_identity(folder, "lunexpc-device")
-    scan = subprocess.run(
-        [ssh_keyscan, "-T", "8", "-t", "rsa", host],
-        text=True, capture_output=True, timeout=22, check=False
-    )
-    host_line = choose_host_key(scan.stdout, host, expected)
+    if host_key_file is not None:
+        # Trusted public host key supplied by the owner's existing connector.
+        scanned = host_key_file.read_text(encoding="ascii")
+    else:
+        scan = subprocess.run(
+            [ssh_keyscan, "-T", "8", "-t", "rsa", host],
+            text=True, capture_output=True, timeout=22, check=False
+        )
+        scanned = scan.stdout
+    host_line = choose_host_key(scanned, host, expected)
     known_hosts = folder / "known_hosts"
     if known_hosts.exists():
         if known_hosts.read_text(encoding="ascii") != host_line:
@@ -101,9 +107,10 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--folder", type=pathlib.Path, required=True)
     parser.add_argument("--public-export", type=pathlib.Path, required=True)
+    parser.add_argument("--host-key-file", type=pathlib.Path)
     args = parser.parse_args()
     try:
-        fp = provision(args.folder, args.public_export)
+        fp = provision(args.folder, args.public_export, host_key_file=args.host_key_file)
     except (OSError, ValueError, RuntimeError, subprocess.TimeoutExpired) as exc:
         print(f"SSH identity provisioning failed: {type(exc).__name__}", file=sys.stderr)
         return 1
