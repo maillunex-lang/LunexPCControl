@@ -186,7 +186,7 @@ class PanelHandler(BaseHTTPRequestHandler):
     server_version = "LunexPC-Panel"
     sys_version = ""
 
-    def _trusted_host(self, mutation=False):
+    def _trusted_host(self, mutation=False, video_stream=False):
         if len(self.headers.get_all("Host", [])) != 1:
             return False
         host = self.headers.get("Host", "")
@@ -200,6 +200,9 @@ class PanelHandler(BaseHTTPRequestHandler):
             return False
         origin = self.headers.get("Origin")
         if mutation:
+            scheme = "https://" if host in (private_proxy_host, "rikagro.ru") else "http://"
+            return len(self.headers.get_all("Origin", [])) == 1 and origin == scheme + host
+        if video_stream and origin is not None:
             scheme = "https://" if host in (private_proxy_host, "rikagro.ru") else "http://"
             return len(self.headers.get_all("Origin", [])) == 1 and origin == scheme + host
         return not origin
@@ -227,7 +230,10 @@ class PanelHandler(BaseHTTPRequestHandler):
         return getattr(self.server, "registry_path", GATEWAY_REGISTRY)
 
     def do_GET(self):
-        if not self._trusted_host():
+        video_stream = bool(re.fullmatch(
+            r"/api/live/h264/[A-Za-z0-9_-]{1,64}/(data|balanced|quality)\.mp4",
+            urlsplit(self.path).path))
+        if not self._trusted_host(video_stream=video_stream):
             self._write(403, b"Forbidden", "text/plain")
             return
         if not self._authenticated():

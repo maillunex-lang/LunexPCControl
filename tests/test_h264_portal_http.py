@@ -64,12 +64,22 @@ class H264PortalHttpTests(unittest.TestCase):
                                        "Sec-Fetch-Site":"cross-site"})[0],403)
             self.assertEqual(self.get({"Authorization":self.auth,"X-LunexPC-Video":"active",
                                        "Origin":"https://evil.example"})[0],403)
+            self.assertEqual(self.get({"Authorization":self.auth,"X-LunexPC-Video":"active",
+                                       "Origin":"http://127.0.0.1:evil"})[0],403)
+            self.assertEqual(self.get({"Authorization":self.auth,"X-LunexPC-Video":"active",
+                                       "Origin":"https://rikagro.ru"})[0],403)
+            # A real same-origin Origin header is valid when the Host is rikagro.ru,
+            # never on a loopback Host with a foreign Origin.
             status,kind,body=self.get({"Authorization":self.auth,"X-LunexPC-Video":"active",
                                         "Sec-Fetch-Site":"same-origin"})
             self.assertEqual(status,200)
             self.assertTrue(kind.startswith("video/mp4"))
             self.assertEqual(body,FRAGMENTS)
-            self.assertEqual(upstream.call_count,1)
+            public_headers={"Authorization":self.auth,"X-LunexPC-Video":"active",
+                            "Host":"rikagro.ru","Origin":"https://rikagro.ru",
+                            "Sec-Fetch-Site":"same-origin"}
+            self.assertEqual(self.get(public_headers)[0],200)
+            self.assertEqual(upstream.call_count,2)
             self.assertEqual(self.get({"Authorization":self.auth,"X-LunexPC-Video":"active"},
                                       path=url+"?tracking=1")[0],404)
 
