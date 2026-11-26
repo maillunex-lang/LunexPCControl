@@ -172,7 +172,8 @@ def make_handler(registry, upstream_factory=http.client.HTTPConnection):
             if route is None:
                 self._respond(403)
                 return
-            if "Transfer-Encoding" in self.headers:
+            # Defend against ambiguous request framing before proxying.
+            if any(k.lower() == "transfer-encoding" for k in self.headers.keys()):
                 self._respond(400)
                 self.close_connection = True
                 return
