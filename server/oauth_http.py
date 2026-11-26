@@ -297,13 +297,20 @@ required autocomplete="current-password">
                     if not login_limit.allow("approve"):
                         raise OAuthError("temporarily_unavailable", 429)
                     origin = self.headers.get("Origin")
-                    if origin is not None and origin != ISSUER:
+                    # Android browsers may send Origin: null on a top-level
+                    # form submission returning from an external application.
+                    # Never trust it as same-origin. Accept only if the exact
+                    # server-issued session cookie and CSRF both validate.
+                    opaque_origin = origin == "null"
+                    if (origin is not None and origin != ISSUER
+                            and not opaque_origin):
                         raise OAuthError("access_denied", 403,
                                          reason="origin_rejected")
                     fetch_site = self.headers.get("Sec-Fetch-Site")
                     if (fetch_site is not None
                             and fetch_site not in ("same-origin", "none")
-                            and not (fetch_site == "same-site" and origin == ISSUER)):
+                            and not (fetch_site == "same-site" and origin == ISSUER)
+                            and not (opaque_origin and fetch_site == "cross-site")):
                         raise OAuthError("access_denied", 403,
                                          reason="fetch_site_rejected")
                     fields = _parse_urlencoded(
@@ -319,6 +326,9 @@ required autocomplete="current-password">
                     # An incorrect but PRESENT cookie is always rejected.
                     fallback = (not cookie and origin == ISSUER
                                 and fetch_site in ("same-origin", "same-site"))
+                    if opaque_origin and not cookie:
+                        raise OAuthError("access_denied", 403,
+                                         reason="missing_cookie")
                     result = store.approve(fields["request_id"], fields["csrf"],
                                            cookie, fields["password"],
                                            _read_secret(owner_file),

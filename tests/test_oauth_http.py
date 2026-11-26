@@ -251,6 +251,32 @@ class OAuthHTTPTests(unittest.TestCase):
         self.assertEqual(status,303)
         self.assertIn("chatgpt.com",headers["Location"])
 
+    def test_android_opaque_origin_requires_intact_cookie(self):
+        client=self.register()
+        form,cookie=self._new_approval_page(client)
+        status,head,_=self.post("/oauth/approve",form,headers={
+            "Cookie":cookie,"Origin":"null","Sec-Fetch-Site":"cross-site"})
+        self.assertEqual(status,303)
+        self.assertIn("chatgpt.com",head["Location"])
+
+    def test_android_opaque_origin_rejects_missing_or_invalid_cookie(self):
+        client=self.register()
+        for supplied in (None, "wrong-but-syntactically-valid-abcdef1234567890"):
+            form,cookie=self._new_approval_page(client)
+            headers={"Origin":"null","Sec-Fetch-Site":"cross-site"}
+            if supplied is not None:
+                headers["Cookie"]=cookie.split("=",1)[0]+"="+supplied
+            status,_,_=self.post("/oauth/approve",form,headers=headers)
+            self.assertEqual(status,403)
+
+    def test_opaque_origin_does_not_allow_invalid_csrf(self):
+        client=self.register()
+        form,cookie=self._new_approval_page(client)
+        status,_,_=self.post("/oauth/approve",
+                             {**form,"csrf":"x"*43},headers={
+            "Cookie":cookie,"Origin":"null","Sec-Fetch-Site":"cross-site"})
+        self.assertEqual(status,403)
+
     def test_cookie_missing_without_proven_origin_denied_html(self):
         client=self.register()
         form,_=self._new_approval_page(client)
