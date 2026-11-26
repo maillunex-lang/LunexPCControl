@@ -53,12 +53,17 @@ async def smoke(endpoint: str) -> None:
     token = os.getenv("WINDOWS_MCP_AUTH_KEY", "")
     if len(token) < 24:
         raise RuntimeError("WINDOWS_MCP_AUTH_KEY is missing or too short")
+    print("MCP stage: connect", flush=True)
     async with Client(endpoint, auth=token, timeout=30) as client:
+        print("MCP stage: list_tools", flush=True)
         tools = await client.list_tools()
         names = {item.name for item in tools}
+        print(f"MCP tool count={len(names)}; screenshot_present={'Screenshot' in names}", flush=True)
         if names != {"Screenshot"}:
             raise RuntimeError("Unsafe MCP tool set enabled; expected Screenshot only")
+        print("MCP stage: call_screenshot", flush=True)
         result = await client.call_tool("Screenshot", {})
+        print(f"MCP result block types={','.join(sorted({str(getattr(x, 'type', 'unknown')) for x in getattr(result, 'content', [])}))}", flush=True)
         summary = summarize_screenshot(result)
         # Only a numeric summary. Do not print or save base64/PNG data.
         print(f"MCP screenshot OK; images={summary['images']}; bytes={summary['bytes']}")
