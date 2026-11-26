@@ -8,6 +8,7 @@ from __future__ import annotations
 import hashlib
 import hmac
 import http.client
+import socket
 import re
 import secrets
 import sqlite3
@@ -164,6 +165,7 @@ def make_handler(registry, upstream_factory=http.client.HTTPConnection):
             }
             request_headers["Authorization"] = f"Bearer {route[1]}"
             conn = None
+            headers_sent = False
             try:
                 conn = upstream_factory("127.0.0.1", route[0], timeout=20)
                 target = "/mcp" + ("?" + split.query if split.query else "")
@@ -176,21 +178,53 @@ def make_handler(registry, upstream_factory=http.client.HTTPConnection):
                 if size is not None and (not size.isdecimal() or int(size) > MAX_RESPONSE):
                     self._respond(502, b"upstream response size exceeded")
                     return
-                # Buffering means SSE support is bounded; see docs/GATEWAY.md.
-                output = response.read(MAX_RESPONSE + 1)
-                if len(output) > MAX_RESPONSE:
-                    self._respond(502, b"upstream response size exceeded")
-                    return
-                self.send_response(response.status)
-                for key, value in response.getheaders():
-                    if key.lower() in RESPONSE_HEADERS and "\r" not in value and "\n" not in value:
-                        self.send_header(key, value)
-                self.send_header("Content-Length", str(len(output)))
-                self.send_header("X-Content-Type-Options", "nosniff")
-                self.end_headers()
-                self.wfile.write(output)
+                media = response.getheader("Content-Type", "")
+                is_stream = "text/event-stream" in media.lower()
+                if is_stream and response.status == 200:
+                    # Send headers immediately; never buffer an unbounded SSE stream.
+                    self.send_response(response.status)
+                    for key, value in response.getheaders():
+                        if key.lower() in RESPONSE_HEADERS and "\r" not in value and "\n" not in value:
+                            self.send_header(key, value)
+                    self.send_header("Cache-Control", "no-cache, no-transform")
+                    self.send_header("X-Accel-Buffering", "no")
+                    self.send_header("X-Content-Type-Options", "nosniff")
+                    self.send_header("Connection", "close")
+                    self.end_headers()
+                    headers_sent = True
+                    self.close_connection = True
+                    # Upstream emits heartbeat/events; a read timeout ends a stale stream.
+                    # Stream is intentionally unbounded in duration and closes with its client.
+                    while True:
+                        chunk = response.read1(65536)
+                        if not chunk:
+                            break
+                        self.wfile.write(chunk)
+                        self.wfile.flush()
+                else:
+                    output = response.read(MAX_RESPONSE + 1)
+                    if len(output) > MAX_RESPONSE:
+                        self._respond(502, b"upstream response size exceeded")
+                        return
+                    self.send_response(response.status)
+                    for key, value in response.getheaders():
+                        if key.lower() in RESPONSE_HEADERS and "\r" not in value and "\n" not in value:
+                            self.send_header(key, value)
+                    self.send_header("Content-Length", str(len(output)))
+                    self.send_header("X-Content-Type-Options", "nosniff")
+                    self.end_headers()
+                    self.wfile.write(output)
+            except (BrokenPipeError, ConnectionResetError):
+                # Client disconnected during SSE; shut down only its upstream socket.
+                self.close_connection = True
             except (OSError, http.client.HTTPException, TimeoutError):
-                self._respond(502, b"Windows agent unavailable")
+                if not headers_sent and not self.wfile.closed:
+                    # Error before response headers: produce a valid gateway error.
+                    try:
+                        self._respond(502, b"Windows agent unavailable")
+                    except OSError:
+                        pass
+                self.close_connection = True
             finally:
                 if conn is not None:
                     conn.close()

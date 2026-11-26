@@ -1,5 +1,6 @@
 import http.client
 import os
+import time
 import tempfile
 import threading
 import unittest
@@ -22,6 +23,17 @@ class FakeMCP(BaseHTTPRequestHandler):
         self.server.last_path = self.path
         self.server.last_auth = self.headers.get("Authorization")
         self.server.last_session = self.headers.get("Mcp-Session-Id")
+        if self.path.endswith("stream=1"):
+            self.send_response(200)
+            self.send_header("Content-Type", "text/event-stream")
+            self.send_header("Cache-Control", "no-cache")
+            self.end_headers()
+            self.wfile.write(b"event: ping\ndata: first\n\n")
+            self.wfile.flush()
+            time.sleep(.6)
+            self.wfile.write(b"event: ping\ndata: second\n\n")
+            self.wfile.flush()
+            return
         if self.path.endswith("redirect=1"):
             self.send_response(302)
             self.send_header("Location", "https://example.org/")
@@ -85,6 +97,22 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(headers["Mcp-Session-Id"], "session-1")
         self.assertEqual(self.upstream.last_auth, "Bearer " + "a" * 32)
         self.assertEqual(self.upstream.last_session, "client-session")
+
+    def test_sse_is_streamed_without_buffering(self):
+        conn = http.client.HTTPConnection("127.0.0.1", self.gateway.server_port, timeout=3)
+        started = time.monotonic()
+        conn.request("GET", "/devices/pc/mcp?stream=1", headers={
+            "Authorization": "Bearer " + self.token, "Accept": "text/event-stream",
+            "Last-Event-ID": "7",
+        })
+        resp = conn.getresponse()
+        self.assertEqual(resp.status, 200)
+        self.assertEqual(resp.getheader("Content-Type"), "text/event-stream")
+        self.assertEqual(resp.getheader("X-Accel-Buffering"), "no")
+        self.assertEqual(resp.read(25), b"event: ping\ndata: first\n\n")
+        self.assertLess(time.monotonic() - started, .55)
+        self.assertEqual(resp.read(), b"event: ping\ndata: second\n\n")
+        conn.close()
 
     def test_reject_bad_auth(self):
         self.assertEqual(self.call("GET", token="invalid")[0], 403)

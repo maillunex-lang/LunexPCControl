@@ -13,14 +13,11 @@ issues an opaque secret shown once. Never log credentials. Protect the SQLite
 database: it contains **plaintext upstream keys**, despite client token hashing.
 
 Route: `/devices/<device>/mcp` -> `http://127.0.0.1:<assigned_port>/mcp`.
-Only GET, POST and DELETE route to MCP. Responses are bounded to 16 MiB
-and request bodies to 4 MiB. Authentication precedes proxying, redirect
+Only GET, POST and DELETE route to MCP. Non-stream responses are bounded to 16 MiB\nand request bodies to 4 MiB. Authentication precedes proxying, redirect
 responses are denied, and headers are allowlisted.
 
 **Known blockers (not production ready):**
-- Streamable MCP supports long-lived SSE and potentially unbounded streams.
-  This stdlib prototype buffers responses, uses a 20-second upstream timeout,
-  and cannot support long-lived streaming MCP sessions yet.
+- SSE responses now flush each received upstream chunk immediately without\n  buffering full events; the upstream socket currently has a 20-second inactivity\n  timeout and streaming is not yet tested with real Windows-MCP. The downstream\n  TLS reverse proxy must disable response buffering and allow long-lived requests.
 - HTTP request body framing has not been fuzzed against request smuggling.
 - Device enrollment must bind a tunnel port and per-device server-side secrets
   with a protected provisioning path. The generic Registry in enrollment.py
