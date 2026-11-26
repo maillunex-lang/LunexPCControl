@@ -13,6 +13,12 @@ param(
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
 function Find-Python314 {
+    # winget may install per-user Python without updating the environment of
+    # an already-running interactive PowerShell session.
+    $localPython = Join-Path $env:LOCALAPPDATA 'Programs\Python\Python314\python.exe'
+    if (Test-Path -LiteralPath $localPython -PathType Leaf) {
+        return $localPython
+    }
     $launcher = Get-Command py -ErrorAction SilentlyContinue
     if ($launcher) {
         # Native py.exe may emit a non-terminating PowerShell error in 5.1.

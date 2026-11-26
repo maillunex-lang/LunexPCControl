@@ -33,6 +33,10 @@ class BootstrapTests(unittest.TestCase):
         self.assertIn('$sessionId -le 0', self.content)
         self.assertIn('$_.SessionId -eq $sessionId', self.content)
 
+    def test_finds_per_user_python_after_winget(self):
+        self.assertIn("Programs\\Python\\Python314\\python.exe", self.content)
+        self.assertIn("Test-Path -LiteralPath $localPython", self.content)
+
     def test_no_scheduled_task(self):
         self.assertNotIn("schtasks", self.content.lower())
         self.assertNotIn("New-NetFirewallRule", self.content)

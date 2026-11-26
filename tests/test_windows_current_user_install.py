@@ -19,6 +19,9 @@ class CurrentUserTests(unittest.TestCase):
         self.assertIn("BootstrapPath = ''", self.source)
         self.assertIn('$MyInvocation.MyCommand.Path', self.source)
 
+    def test_detects_user_python_without_path_reload(self):
+        self.assertIn('Test-Path -LiteralPath $localPython', self.source)
+
     def test_python_scope(self):
         self.assertIn('--scope user', self.source)
         self.assertIn('Python.Python.3.14', self.source)

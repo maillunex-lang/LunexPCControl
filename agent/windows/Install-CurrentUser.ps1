@@ -15,7 +15,8 @@ $interactive = [Environment]::UserInteractive -and $session -gt 0
 $root = Join-Path $env:LOCALAPPDATA 'LunexPCControl'
 $python = Get-Command python3.14 -ErrorAction SilentlyContinue
 $launcher = Get-Command py -ErrorAction SilentlyContinue
-$has314 = [bool]$python
+$localPython = Join-Path $env:LOCALAPPDATA 'Programs\Python\Python314\python.exe'
+$has314 = [bool]$python -or (Test-Path -LiteralPath $localPython -PathType Leaf)
 if (-not $has314 -and $launcher) {
     $versions = (& py -0p 2>$null | Out-String)
     $has314 = ($LASTEXITCODE -eq 0 -and $versions -match '-V:3\.14')
