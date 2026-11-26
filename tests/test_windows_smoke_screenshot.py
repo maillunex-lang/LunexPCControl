@@ -45,3 +45,7 @@ class SmokeScreenshotTests(unittest.TestCase):
     def test_mcp_error(self):
         with self.assertRaises(ValueError):
             mod.summarize_screenshot(types.SimpleNamespace(isError=True, content=[]))
+
+    def test_only_approved_tool_set(self):
+        source = PATH.read_text(encoding="utf-8")
+        self.assertIn('names != {"Screenshot", "ControlStatus"}', source)

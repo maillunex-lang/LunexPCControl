@@ -59,8 +59,8 @@ async def smoke(endpoint: str) -> None:
         tools = await client.list_tools()
         names = {item.name for item in tools}
         print(f"MCP tool count={len(names)}; screenshot_present={'Screenshot' in names}", flush=True)
-        if names != {"Screenshot"}:
-            raise RuntimeError("Unsafe MCP tool set enabled; expected Screenshot only")
+        if names != {"Screenshot", "ControlStatus"}:
+            raise RuntimeError("Unsafe MCP tool set enabled; expected Screenshot and ControlStatus only")
         print("MCP stage: call_screenshot", flush=True)
         result = await client.call_tool("Screenshot", {})
         print(f"MCP result block types={','.join(sorted({str(getattr(x, 'type', 'unknown')) for x in getattr(result, 'content', [])}))}", flush=True)
