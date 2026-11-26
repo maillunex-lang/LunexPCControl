@@ -11,7 +11,7 @@ def authorized_key(public_key: str, port: int) -> str:
         raise ValueError('expected Ed25519 public key')
     try:
         blob = base64.b64decode(fields[1], validate=True)
-    except ValueError as exc:
+    except (ValueError, base64.binascii.Error) as exc:
         raise ValueError('invalid key encoding') from exc
     prefix = struct.pack('>I', 11) + b'ssh-ed25519' + struct.pack('>I', 32)
     if not blob.startswith(prefix) or len(blob) != len(prefix) + 32:
