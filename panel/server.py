@@ -122,13 +122,13 @@ footer{margin-top:32px;color:#8498ab;font-size:12px}
 @media(max-width:620px){.grid{grid-template-columns:1fr}.card{padding:18px}}
 </style></head><body><div class="wrap">
 <header><div><div class="brand">Lunex • PC Control</div><h1>Центр управления</h1></div>
-<div class="pill">🔒 Только локальный доступ</div></header>
+<div class="pill">🔒 Защищённый доступ</div></header>
 <p class="sub">Центр управления и мониторинга ИИ.</p>
 <nav style="display:flex;gap:9px;margin-bottom:20px;flex-wrap:wrap">
-<a style="color:#b6ddff;padding:10px 15px;border:1px solid #30475c;border-radius:12px" href="/">Обзор</a>
-<a style="color:#b6ddff;padding:10px 15px;border:1px solid #30475c;border-radius:12px" href="/devices">Устройства</a>
-<a style="color:#b6ddff;padding:10px 15px;border:1px solid #30475c;border-radius:12px" href="/live">Live View</a>
-<a style="color:#b6ddff;padding:10px 15px;border:1px solid #30475c;border-radius:12px" href="/monitor">История</a>
+<a style="color:#b6ddff;padding:10px 15px;border:1px solid #30475c;border-radius:12px" href="/portalmcp/">Обзор</a>
+<a style="color:#b6ddff;padding:10px 15px;border:1px solid #30475c;border-radius:12px" href="/portalmcp/devices">Устройства</a>
+<a style="color:#b6ddff;padding:10px 15px;border:1px solid #30475c;border-radius:12px" href="/portalmcp/live">Live View</a>
+<a style="color:#b6ddff;padding:10px 15px;border:1px solid #30475c;border-radius:12px" href="/portalmcp/monitor">История</a>
 </nav>
 <section class="grid">
 <div class="card"><div class="label">Зарегистрированные устройства</div>
@@ -152,13 +152,13 @@ footer{margin-top:32px;color:#8498ab;font-size:12px}
 Панель не предоставляет команды управления.</footer>
 </div><script>
 async function load(){
- const response=await fetch('/api/status',{cache:'no-store'});
+ const response=await fetch('/portalmcp/api/status',{cache:'no-store'});
  if(!response.ok)throw Error('Невозможно загрузить статистику');
  const data=await response.json();
  document.getElementById('devices').textContent=data.devices;
  document.getElementById('clients').textContent=data.active_clients;
  try{
-   const devicesResponse=await fetch('/api/devices',{cache:'no-store'});
+   const devicesResponse=await fetch('/portalmcp/api/devices',{cache:'no-store'});
    if(devicesResponse.ok){
      const devices=await devicesResponse.json();
      document.getElementById('online').textContent=devices.devices.filter(x=>x.tunnel_online).length;
@@ -192,11 +192,12 @@ class PanelHandler(BaseHTTPRequestHandler):
         private_proxy_host = os.environ.get("LUNEXPC_PANEL_ALLOWED_HOST", "").strip()
         if private_proxy_host:
             permitted.add(private_proxy_host)
+        permitted.add("rikagro.ru")
         if host not in permitted:
             return False
         origin = self.headers.get("Origin")
         if mutation:
-            scheme = "https://" if host == private_proxy_host else "http://"
+            scheme = "https://" if host in (private_proxy_host, "rikagro.ru") else "http://"
             return len(self.headers.get_all("Origin", [])) == 1 and origin == scheme + host
         return not origin
 
@@ -209,6 +210,12 @@ class PanelHandler(BaseHTTPRequestHandler):
             self._write(401, b"Access denied", "text/plain")
             return False
         return True
+
+    def _ui(self, markup):
+        """Preserve private Termalin root URLs; public Nginx uses /portalmcp/."""
+        if self.headers.get("Host") == "rikagro.ru":
+            return markup
+        return markup.replace(b"/portalmcp/", b"/")
 
     def _screens(self):
         return getattr(self.server, "screen_history", None)
@@ -226,14 +233,16 @@ class PanelHandler(BaseHTTPRequestHandler):
         if parsed.query or parsed.fragment:
             self._write(404, b"Not found", "text/plain")
             return
+        # Preserve existing private Termalin routes and proxy-public /portalmcp/.
+        # Nginx removes the prefix before forwarding; no path alias is needed.
         if parsed.path == "/":
-            self._write(200, html_page(), "text/html; charset=utf-8")
+            self._write(200, self._ui(html_page()), "text/html; charset=utf-8")
         elif parsed.path == "/monitor":
-            self._write(200, monitor_page(), "text/html; charset=utf-8")
+            self._write(200, self._ui(monitor_page()), "text/html; charset=utf-8")
         elif parsed.path == "/devices":
-            self._write(200, devices_page(), "text/html; charset=utf-8")
+            self._write(200, self._ui(devices_page()), "text/html; charset=utf-8")
         elif parsed.path == "/live":
-            self._write(200, live_page(), "text/html; charset=utf-8")
+            self._write(200, self._ui(live_page()), "text/html; charset=utf-8")
         elif parsed.path == "/api/devices":
             try:
                 devices = probe_devices(self._registry())

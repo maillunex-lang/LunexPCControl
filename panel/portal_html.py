@@ -31,8 +31,8 @@ code{background:#0b1622;border-radius:6px;padding:2px 5px;word-break:break-word}
 </style></head><body><div class="wrap">
 <header><div><div class="kicker">Lunex • PC Control</div><h1>Мои компьютеры</h1></div>
 <span class="muted">🔒 Приватное подключение</span></header>
-<nav><a href="/">Обзор</a><a aria-current="page" href="/devices">Устройства</a>
-<a href="/live">Live View</a><a href="/monitor">История снимков</a></nav>
+<nav><a href="/portalmcp/">Обзор</a><a aria-current="page" href="/portalmcp/devices">Устройства</a>
+<a href="/portalmcp/live">Live View</a><a href="/portalmcp/monitor">История снимков</a></nav>
 <section class="card"><h2>Подключённые устройства</h2>
 <p>Windows самостоятельно соединяется с VPS. Публичный IP компьютера
 не нужен: при переходе между Wi-Fi, кабелем и мобильным интернетом
@@ -62,7 +62,7 @@ code{background:#0b1622;border-radius:6px;padding:2px 5px;word-break:break-word}
 const holder=document.getElementById('devices');
 async function load(){
  try{
-  const response=await fetch('/api/devices',{cache:'no-store'});
+  const response=await fetch('/portalmcp/api/devices',{cache:'no-store'});
   if(!response.ok)throw Error('HTTP '+response.status);
   const result=await response.json();
   holder.replaceChildren();
@@ -79,7 +79,7 @@ async function load(){
    const state=document.createElement('span');state.className='state '+(d.tunnel_online?'on':'off');
    state.textContent=d.tunnel_online?'В сети':'Не в сети';
    const link=document.createElement('a');link.className='link';
-   link.href='/live';link.textContent='Открыть экран';
+   link.href='/portalmcp/live';link.textContent='Открыть экран';
    right.append(state,link);wrap.append(left,right);holder.append(wrap);
   }
  }catch(err){holder.textContent='Нет связи с сервером статуса.'}
@@ -118,8 +118,8 @@ footer{color:#8197ad;font-size:12px;margin:20px 0}
 @media(max-width:600px){h1{font-size:25px}.toolbar{gap:7px}.wrap{padding:13px 9px}}
 </style></head><body><div class="wrap">
 <h1>Live View</h1>
-<nav><a href="/">Обзор</a><a href="/devices">Устройства</a>
-<a aria-current="page" href="/live">Live View</a><a href="/monitor">История</a></nav>
+<nav><a href="/portalmcp/">Обзор</a><a href="/portalmcp/devices">Устройства</a>
+<a aria-current="page" href="/portalmcp/live">Live View</a><a href="/portalmcp/monitor">История</a></nav>
 <p class="muted">Экономный просмотр экрана через исходящий туннель.
 Кадры JPEG запрашиваются только после нажатия «Начать». При остановке,
 закрытии вкладки и отключении устройства запросы прекращаются.
@@ -151,7 +151,7 @@ const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 function setStatus(message){el('state').textContent=message}
 async function loadDevices(){
  try{
-  const r=await fetch('/api/devices',{cache:'no-store'});
+  const r=await fetch('/portalmcp/api/devices',{cache:'no-store'});
   if(!r.ok)throw Error('status');
   const data=await r.json();el('device').replaceChildren();
   for(const dev of data.devices){
@@ -168,7 +168,7 @@ async function poll(){
    const device=el('device').value, quality=el('quality').value;
    if(!device){setStatus('Устройство не выбрано');break}
    controller=new AbortController();
-   const r=await fetch('/api/live/frame/'+encodeURIComponent(device)+'/'+quality+'.jpg',{
+   const r=await fetch('/portalmcp/api/live/frame/'+encodeURIComponent(device)+'/'+quality+'.jpg',{
     cache:'no-store',headers:{'X-LunexPC-LiveView':'active'},
     signal:controller.signal
    });

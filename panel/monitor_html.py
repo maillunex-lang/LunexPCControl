@@ -52,8 +52,8 @@ footer{margin:24px 0;color:#7990a6;font-size:12px}
 </style></head><body><div class="wrap">
 <div class="top"><div><div class="brand">Lunex • PC Control</div><h1>Мониторинг экрана</h1></div>
 <div class="pill">🔒 Приватная история ИИ</div></div>
-<nav><a href="/">Обзор</a><a href="/devices">Устройства</a>
-<a href="/live">Live View</a><a aria-current="page" href="/monitor">История снимков</a></nav>
+<nav><a href="/portalmcp/">Обзор</a><a href="/portalmcp/devices">Устройства</a>
+<a href="/portalmcp/live">Live View</a><a aria-current="page" href="/portalmcp/monitor">История снимков</a></nav>
 <p class="sub">Снимки появляются автоматически, когда подключённый ИИ использует разрешённый инструмент Screenshot.
 Обновление просмотра каждые 3 секунды. Это не непрерывная видеотрансляция.</p>
 <div class="grid"><section class="card">
@@ -100,7 +100,7 @@ async function fetchJSON(path,options={}){
  return response.json();
 }
 function show(id){
- const url='/api/screens/'+encodeURIComponent(id)+'.png';
+ const url='/portalmcp/api/screens/'+encodeURIComponent(id)+'.png';
  qs('viewerImage').src=url;
  qs('viewer').showModal();
 }
@@ -108,7 +108,7 @@ function addThumb(item){
  const button=document.createElement('button');
  button.type='button';button.className='thumb';
  const image=document.createElement('img');
- image.src='/api/screens/'+encodeURIComponent(item.id)+'.png';
+ image.src='/portalmcp/api/screens/'+encodeURIComponent(item.id)+'.png';
  image.alt='Скриншот '+formatTime(item.time);image.loading='lazy';
  const span=document.createElement('span');
  span.textContent=formatTime(item.time);
@@ -118,7 +118,7 @@ function addThumb(item){
 }
 async function refresh(){
  try{
-  const data=await fetchJSON('/api/screens');
+  const data=await fetchJSON('/portalmcp/api/screens');
   if(!settingsReady){
    qs('retention').value=String(data.settings.retention_hours);
    qs('maxCount').value=String(data.settings.max_count);
@@ -129,7 +129,7 @@ async function refresh(){
   const first=data.items[0];
   qs('empty').style.display=data.items.length?'none':'block';
   if(first){
-   const url='/api/screens/'+encodeURIComponent(first.id)+'.png';
+   const url='/portalmcp/api/screens/'+encodeURIComponent(first.id)+'.png';
    if(selected!==first.id){
     selected=first.id;
     qs('latestImage').src=url;
@@ -163,17 +163,17 @@ async function action(path,payload,tag){
   await refresh();
  }catch(e){qs('settingsStatus').textContent='Ошибка изменения: '+e.message}
 }
-qs('saveSettings').addEventListener('click',()=>action('/api/screens/settings',{
+qs('saveSettings').addEventListener('click',()=>action('/portalmcp/api/screens/settings',{
  retention_hours:Number(qs('retention').value),
  max_count:Number(qs('maxCount').value)},'screens-settings'));
 qs('clear').addEventListener('click',()=>{
  if(confirm('Удалить все сохранённые снимки экрана?')){
-  action('/api/screens/clear',{},'screens-clear');
+  action('/portalmcp/api/screens/clear',{},'screens-clear');
  }
 });
 async function refreshActions(){
  try{
-  const status=await fetchJSON('/api/status');
+  const status=await fetchJSON('/portalmcp/api/status');
   const table=qs('actions');table.replaceChildren();
   const records=(status.audit||[]).filter(e=>e.method==='call_screenshot'||e.method==='call_status');
   for(const entry of records.slice().reverse().slice(0,15)){
