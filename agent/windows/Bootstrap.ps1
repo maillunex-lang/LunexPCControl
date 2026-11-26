@@ -54,7 +54,7 @@ if (-not $Install -and -not $Start) {
     $state | Format-List
     exit 0
 }
-Require-InteractiveDesktop
+if ($Start) { Require-InteractiveDesktop }
 if (-not $state.ReadyToInstall) {
     throw 'Prerequisites missing: require Python 3.14+, Git and OpenSSH. No system Python changes were made.'
 }

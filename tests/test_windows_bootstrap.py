@@ -23,6 +23,9 @@ class BootstrapTests(unittest.TestCase):
         self.assertIn("WINDOWS_MCP_AUTH_KEY", self.content)
         self.assertIn("ANONYMIZED_TELEMETRY", self.content)
 
+    def test_install_headless_but_start_interactive(self):
+        self.assertIn("if ($Start) { Require-InteractiveDesktop }", self.content)
+
     def test_no_scheduled_task(self):
         self.assertNotIn("schtasks", self.content.lower())
         self.assertNotIn("New-NetFirewallRule", self.content)
