@@ -5,6 +5,7 @@ and the privileged gateway routing policy remains unchanged.
 """
 import base64
 import hashlib
+from html import unescape
 from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
 import json
@@ -20,6 +21,15 @@ from server.oauth_http import AUTH_CHALLENGE, RESOURCE_METADATA, METADATA, make_
 from server.oauth_store import OAuthStore, RESOURCE
 
 CALLBACK="https://chatgpt.com/connector_platform_oauth_redirect"
+
+
+def approval_url(page):
+    # A deliberate, user-clicked callback, not a 303 or a replay.
+    match=re.search(rb'<a id="continue" href="([^"]+)"',page)
+    if not match:
+        raise AssertionError("missing explicit ChatGPT handoff")
+    return unescape(match.group(1).decode("utf-8"))
+
 VERIFIER="p"*64
 CHALLENGE=base64.urlsafe_b64encode(
     hashlib.sha256(VERIFIER.encode()).digest()).rstrip(b"=").decode()
@@ -104,6 +114,8 @@ class OAuthHTTPTests(unittest.TestCase):
         status,h,body=self.request("GET","/oauth/authorize?"+q)
         self.assertEqual(status,200,body)
         self.assertIn(b"LunexPCControl",body)
+        self.assertIn(b"button.disabled = true;",body)
+        self.assertIn("script-src 'nonce-",h["Content-Security-Policy"])
         self.assertIn(b"type=\"password\"",body)
         request_id=re.search(rb'name="request_id" value="([^"]+)"',body).group(1).decode()
         csrf=re.search(rb'name="csrf" value="([^"]+)"',body).group(1).decode()
@@ -113,8 +125,13 @@ class OAuthHTTPTests(unittest.TestCase):
             "request_id":request_id,"csrf":csrf,
             "password":self.owner_password
         },headers={"Cookie":cookie,"Origin":"https://rikagro.ru"})
-        self.assertEqual(status,303,body)
-        url=urlsplit(h["Location"])
+        self.assertEqual(status,200)
+        self.assertNotIn("Location",h)
+        self.assertNotIn("Set-Cookie",h)
+        self.assertEqual(h["Content-Type"],"text/html; charset=utf-8")
+        self.assertIn("no-store",h["Cache-Control"])
+        self.assertIn("frame-ancestors 'none'",h["Content-Security-Policy"])
+        url=urlsplit(approval_url(body))
         self.assertEqual(url.scheme,"https")
         self.assertEqual(url.netloc,"chatgpt.com")
         args=parse_qs(url.query)
@@ -145,11 +162,11 @@ class OAuthHTTPTests(unittest.TestCase):
             "csrf":re.search(rb'name="csrf" value="([^"]+)"',page).group(1).decode(),
             "password":self.owner_password
         }
-        status,response,_=self.post("/oauth/approve",form,headers={
+        status,response,body=self.post("/oauth/approve",form,headers={
             "Cookie":headers["Set-Cookie"].split(";",1)[0],
             "Origin":"https://rikagro.ru"})
-        self.assertEqual(status,303)
-        url=urlsplit(response["Location"])
+        self.assertEqual(status,200)
+        url=urlsplit(approval_url(body))
         self.assertEqual(url.path,"/connector/oauth/abcDEF123456")
         params=parse_qs(url.query)
         self.assertEqual(params["state"],["opaque-original-state"])
@@ -261,31 +278,31 @@ class OAuthHTTPTests(unittest.TestCase):
         # Chrome sends cookies for both tabs: select by request, not last cookie.
         all_cookies=first_cookie+"; "+second_cookie
         for form in (first,second):
-            status,head,_=self.post("/oauth/approve",form,headers={
+            status,head,body=self.post("/oauth/approve",form,headers={
                 "Cookie":all_cookies,
                 "Origin":"https://rikagro.ru",
                 "Sec-Fetch-Site":"same-origin",
             })
-            self.assertEqual(status,303)
-            self.assertIn("chatgpt.com",head["Location"])
+            self.assertEqual(status,200)
+            self.assertIn("chatgpt.com",approval_url(body))
 
     def test_android_cookie_missing_same_origin_fallback(self):
         client=self.register()
         form,_=self._new_approval_page(client)
-        status,headers,_=self.post("/oauth/approve",form,headers={
+        status,headers,body=self.post("/oauth/approve",form,headers={
             "Origin":"https://rikagro.ru",
             "Sec-Fetch-Site":"same-origin",
         })
-        self.assertEqual(status,303)
-        self.assertIn("chatgpt.com",headers["Location"])
+        self.assertEqual(status,200)
+        self.assertIn("chatgpt.com",approval_url(body))
 
     def test_android_opaque_origin_requires_intact_cookie(self):
         client=self.register()
         form,cookie=self._new_approval_page(client)
-        status,head,_=self.post("/oauth/approve",form,headers={
+        status,head,body=self.post("/oauth/approve",form,headers={
             "Cookie":cookie,"Origin":"null","Sec-Fetch-Site":"cross-site"})
-        self.assertEqual(status,303)
-        self.assertIn("chatgpt.com",head["Location"])
+        self.assertEqual(status,200)
+        self.assertIn("chatgpt.com",approval_url(body))
 
     def test_android_opaque_origin_rejects_missing_or_invalid_cookie(self):
         client=self.register()
@@ -309,9 +326,11 @@ class OAuthHTTPTests(unittest.TestCase):
         client=self.register()
         form,cookie=self._new_approval_page(client)
         headers={"Cookie":cookie,"Origin":"null","Sec-Fetch-Site":"cross-site"}
-        status,response,_=self.post("/oauth/approve",form,headers=headers)
-        self.assertEqual(status,303)
-        self.assertIn("code=",response["Location"])
+        status,response,first_page=self.post("/oauth/approve",form,headers=headers)
+        self.assertEqual(status,200)
+        self.assertIn("code=",approval_url(first_page))
+        self.assertNotIn("Location",response)
+        self.assertNotIn("Set-Cookie",response)
         status,response,body=self.post("/oauth/approve",form,headers=headers)
         self.assertEqual(status,200)
         self.assertIn("Вход уже подтверждён".encode(),body)
@@ -337,11 +356,11 @@ class OAuthHTTPTests(unittest.TestCase):
     def test_same_site_origin_verified_with_missing_cookie(self):
         client=self.register()
         form,_=self._new_approval_page(client)
-        status,head,_=self.post("/oauth/approve",form,headers={
+        status,head,body=self.post("/oauth/approve",form,headers={
             "Origin":"https://rikagro.ru", "Sec-Fetch-Site":"same-site",
         })
-        self.assertEqual(status,303)
-        self.assertIn("chatgpt.com",head["Location"])
+        self.assertEqual(status,200)
+        self.assertIn("chatgpt.com",approval_url(body))
 
     def test_bad_cookie_never_uses_browser_fallback(self):
         client=self.register()

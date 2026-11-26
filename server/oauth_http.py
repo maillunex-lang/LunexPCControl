@@ -18,6 +18,7 @@ import logging
 import os
 from pathlib import Path
 import re
+import secrets
 import sqlite3
 import socket
 import threading
@@ -235,6 +236,7 @@ small{{color:#a7bfd2}}
                     callback = html.escape(flow["redirect_uri"], quote=True)
                     request_id = html.escape(flow["request_id"], quote=True)
                     csrf = html.escape(flow["csrf"], quote=True)
+                    nonce = secrets.token_urlsafe(18)
                     page = f'''<!doctype html><html lang="ru"><head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>LunexPCControl — разрешение доступа</title>
@@ -250,18 +252,25 @@ small{{color:#a7bfd2}}.warning{{background:#24344a;padding:12px;border-radius:8p
 <p class="warning">Разрешено только чтение: Screenshot и ControlStatus.
 Мышь, клавиатура, файлы и команды остаются недоступными.</p>
 <p><small>Адрес возврата: {callback}</small></p>
-<form method="post" action="/oauth/approve" autocomplete="off">
+<form id="oauth-approval-form" method="post" action="/oauth/approve" autocomplete="off">
 <input type="hidden" name="request_id" value="{request_id}">
 <input type="hidden" name="csrf" value="{csrf}">
 <label for="password">Пароль владельца портала LunexPCControl</label>
 <input id="password" type="password" name="password" maxlength="128"
 required autocomplete="current-password">
-<button type="submit">Разрешить просмотр</button></form>
+<button id="oauth-approval-button" type="submit">Разрешить просмотр</button></form>
+<script nonce="{nonce}">
+document.getElementById("oauth-approval-form").addEventListener("submit", function() {{
+ const button = document.getElementById("oauth-approval-button");
+ button.disabled = true;
+ button.textContent = "Подтверждение...";
+}});
+</script>
 <p><small>Вводите пароль только на https://rikagro.ru.
 Не передавайте пароль или токены в чат.</small></p></main></body></html>'''
                     self._send(200, page, "text/html; charset=utf-8", headers={
                         "Set-Cookie": f"{_cookie_name(flow['request_id'])}={flow['cookie']}; Path=/; Max-Age=300; Secure; HttpOnly; SameSite=Lax",
-                        "Content-Security-Policy": "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
+                        "Content-Security-Policy": f"default-src 'none'; style-src 'unsafe-inline'; script-src 'nonce-{nonce}'; form-action 'self'; base-uri 'none'; frame-ancestors 'none'",
                         "X-Frame-Options": "DENY",
                     })
                 else:
@@ -356,9 +365,34 @@ required autocomplete="current-password">
                         "state": result["state"],
                         "iss": ISSUER,
                     })
-                    self._send(303, b"", "text/plain", headers={
-                        "Location": redirect,
-                        "Set-Cookie": f"{_cookie_name(fields['request_id'])}=; Path=/; Max-Age=0; Secure; HttpOnly; SameSite=Lax",
+                    # A blank cross-site 303 does not reliably complete in
+                    # some embedded and external browsers. Show an explicit,
+                    # user-activated callback link instead. The single-use
+                    # code is not logged, cached, or reissued on a second POST.
+                    safe_callback = html.escape(redirect, quote=True)
+                    page = f"""<!doctype html><html lang="ru"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="referrer" content="no-referrer">
+<title>LunexPCControl — подтверждение выполнено</title>
+<style>
+body{{margin:0;background:#101b2b;color:#e6f2ff;font:16px system-ui;padding:1.3rem}}
+main{{max-width:520px;margin:3rem auto;padding:1.5rem;background:#182940;border-radius:16px}}
+p{{line-height:1.5}}
+a{{display:inline-block;padding:14px 18px;background:#197d61;color:white;
+text-decoration:none;border-radius:10px;margin:1rem 0}}
+small{{color:#a7bfd2}}
+</style></head><body><main>
+<h1>Доступ подтверждён</h1>
+<p>Теперь нажми кнопку ниже, чтобы завершить подключение в ChatGPT.</p>
+<a id="continue" href="{safe_callback}">Перейти в ChatGPT</a>
+<p><small>Ссылка одноразовая и действует примерно две минуты.
+Если она устареет, запусти новое подключение в ChatGPT.</small></p>
+</main></body></html>"""
+                    self._send(200, page, "text/html; charset=utf-8", headers={
+                        "Content-Security-Policy":
+                            "default-src 'none'; style-src 'unsafe-inline'; "
+                            "base-uri 'none'; frame-ancestors 'none'; form-action 'none'",
+                        "X-Frame-Options": "DENY",
                     })
                 elif path.path == "/lunexpc-mcp":
                     self._mcp()

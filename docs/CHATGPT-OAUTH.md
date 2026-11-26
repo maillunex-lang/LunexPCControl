@@ -14,9 +14,15 @@ metadata. No third-party paid API or identity provider is required.
    https://rikagro.ru/oauth/authorize.
 5. Check that the browser address begins with https://rikagro.ru/oauth/.
    Enter your existing LunexPCControl portal password only on this page,
-   then press the explicit "Разрешить просмотр" button.
-6. ChatGPT receives a short-lived access token. It may request renewed
-   authorization if the refresh token expires or the service is migrated.
+   then press "Разрешить просмотр" once.
+6. The server displays "Доступ подтверждён" on a no-store page. Press
+   "Перейти в ChatGPT" on that page to activate the exact, single-use
+   ChatGPT callback. Do not repeat the password form submission.
+   The callback link expires after about two minutes; if it expires,
+   start a fresh connection in ChatGPT.
+7. ChatGPT exchanges the authorization code for an access token. It may
+   request renewed authorization if the refresh token expires or the
+   service is migrated.
 
 The OAuth page displays the actual ChatGPT callback URI and read-only
 scope before approval. Do not enter your password in any ChatGPT message.
@@ -53,7 +59,14 @@ The owner must enter the password explicitly on the server's own approval
 page; it is checked locally with a bounded five-attempt authorization flow.
 
 OAuth credentials, codes and tokens are held in a separate SQLite database
-as SHA-256 digests. The dedicated bridge credential remains in a private
+as SHA-256 digests. The authorization handoff page contains the short-lived
+callback URL only after a successful owner-password check; it is not
+cached and is not logged. The initial POST returns HTML rather than an
+empty cross-site HTTP 303, so embedded browsers expose a visible link.
+The original Secure/HttpOnly/SameSite cookie stays in the browser until
+its normal expiry to recognize a repeated POST without issuing another
+authorization code. A nonce-protected script disables the submit button
+after the first click. The dedicated bridge credential remains in a private
 0600 file, accessible only to the lunexpc-gateway system user.
 The legacy Alpha 0.1 API-key plugin remains compatible through the new bridge
 for clients already configured using the original Bearer key.
