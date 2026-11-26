@@ -13,7 +13,8 @@ issues an opaque secret shown once. Never log credentials. Protect the SQLite
 database: it contains **plaintext upstream keys**, despite client token hashing.
 
 Route: `/devices/<device>/mcp` -> `http://127.0.0.1:<assigned_port>/mcp`.
-Only GET, POST and DELETE route to MCP. Non-stream responses are bounded to 16 MiB\nand request bodies to 4 MiB. Authentication precedes proxying, redirect
+Only GET, POST and DELETE route to MCP. Non-stream responses are bounded to 16 MiB
+and request bodies to 4 MiB. Authentication precedes proxying, redirect
 responses are denied, and headers are allowlisted.
 
 **Known blockers (not production ready):**
@@ -27,3 +28,18 @@ responses are denied, and headers are allowlisted.
   screenshot verification.
 - Recheck upstream Windows-MCP's bearer format and actual MCP endpoint before
   attempting real end-to-end deployment.
+
+## Verified local integration (2026-11-26)
+
+The gateway test suite now covers a full MCP JSON-RPC sequence through the
+authenticated loopback gateway: `initialize`, `tools/list`, and
+`tools/call` carrying an image content block. It also verifies distinct
+gateway client and upstream Windows credentials, revoked device access,
+rejection of duplicate Authorization and Content-Length headers, restricted
+SQLite registry permissions and symlink rejection.
+
+These tests use an in-process MCP simulator, not the actual Windows desktop.
+The Windows-MCP screenshot and SSH HTTP tunnel have separately passed live
+tests, but the complete end-to-end screenshot through the VPS gateway has
+not yet been performed. HTTPS and ChatGPT plugin connectivity remain pending.
+Do not publish port 18880 as plain HTTP.
