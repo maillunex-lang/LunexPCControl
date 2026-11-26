@@ -27,3 +27,30 @@ forwarded requests cannot complete.
 
 After establishing a listener, verify on VPS with
 ss -ltn '( sport = :23789 )' and confirm it only binds to 127.0.0.1.
+
+## Live tunnel validation, 2026-11-26
+
+On the Windows account lunexrdp (interactive session 3), we generated the
+device Ed25519 key and pinned the VPS RSA host key after verifying its
+SHA256 fingerprint. The private device key stayed on Windows with restricted
+per-user ACLs. The VPS account lunexpc-tunnel was created without an
+interactive shell or usable password, and enrolled a single restricted key.
+
+Running Start-ReverseTunnel.ps1 authenticated by SSH public key and bound
+ONLY 127.0.0.1:23789 on VPS (verified via ss). A temporary **loopback-only**
+HTTP test server on the Windows machine listened on 127.0.0.1:18789.
+The VPS executed a real curl to
+http://127.0.0.1:23789/tunnel-health through the SSH reverse tunnel.
+The response body was exactly "LunexPCControl tunnel OK" and curl exited
+successfully.
+
+The temporary Windows HTTP server was stopped. The foreground Windows SSH
+tunnel was stopped with Ctrl+C. A final independent check confirmed no
+listening sockets on the test ports. No sshd configuration, VPS firewall,
+nginx, gaming process, or public MCP endpoint was changed.
+
+This validates the SSH transport and host authorization, NOT the complete
+remote Windows-MCP screenshot path. Next needed: securely provision a
+separate upstream MCP bearer token, test the authenticated MCP gateway
+through this tunnel, and deploy the TLS endpoint behind a reviewed proxy.
+Only then consider a consent-aware, supervised tunnel lifecycle.
