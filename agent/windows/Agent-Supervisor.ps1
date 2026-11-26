@@ -48,11 +48,11 @@ try {
     $retry = 0
     while ($retry -lt $MaxRetries) {
         $agentProcess = Start-Process -FilePath $agent -ArgumentList @(
-            'serve','--transport','streamable-http','--host','127.0.0.1','--port','18789','--tools','Screenshot','ControlStatus','--control-policy','strict'
+            'serve','--transport','streamable-http','--host','127.0.0.1','--port','18789','--tools','Screenshot,ControlStatus','--control-policy','strict'
         ) -PassThru -WindowStyle Hidden
         $processes.Add($agentProcess)
         $listening = $false
-        for ($probe = 0; $probe -lt 10; $probe++) {
+        for ($probe = 0; $probe -lt 45; $probe++) {
             if ($agentProcess.HasExited) { break }
             try {
                 $client = New-Object System.Net.Sockets.TcpClient
@@ -65,7 +65,8 @@ try {
         }
         if ($agentProcess.HasExited -or -not $listening) {
             $retry++
-            Write-Warning "Windows MCP was not ready before tunnel establishment (attempt $retry)"
+            $failure = if ($agentProcess.HasExited) { "process exited with code $($agentProcess.ExitCode)" } else { 'port 18789 did not become ready' }
+            Write-Warning "Windows MCP was not ready ($failure; attempt $retry)"
             if (-not $agentProcess.HasExited) { Stop-Process -Id $agentProcess.Id -ErrorAction SilentlyContinue }
             if ($retry -lt $MaxRetries) { Start-Sleep -Seconds $RetrySeconds }
             continue
