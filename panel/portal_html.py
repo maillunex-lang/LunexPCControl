@@ -111,6 +111,7 @@ select{max-width:175px}
 .canvas{background:#080e16;display:flex;align-items:center;justify-content:center;
 border:1px solid #31475f;border-radius:12px;aspect-ratio:16/9;overflow:hidden;position:relative}
 .canvas img{max-width:100%;max-height:100%;width:100%;height:100%;object-fit:contain;display:none}
+.canvas video{max-width:100%;max-height:100%;width:100%;height:100%;object-fit:contain;display:none}
 #placeholder{color:#abc0d0;text-align:center;padding:24px;max-width:360px;line-height:1.7}
 .pill{border:1px solid #415b70;color:#bad2df;padding:6px 11px;border-radius:25px;font-size:12px}
 small{font-size:12px}
@@ -120,38 +121,41 @@ footer{color:#8197ad;font-size:12px;margin:20px 0}
 <h1>Live View</h1>
 <nav><a href="/portalmcp/">Обзор</a><a href="/portalmcp/devices">Устройства</a>
 <a aria-current="page" href="/portalmcp/live">Live View</a><a href="/portalmcp/monitor">История</a></nav>
-<p class="muted">Онлайн-трансляция экрана через защищённый туннель.
-Видео передаётся единым MJPEG-потоком и запускается только по кнопке.
-Можно переключиться на прежний JPEG-режим. Максимум один кадр в секунду
-до внедрения аппаратного H.264-кодирования на Windows.</p>
+<p class="muted">Защищённая онлайн-трансляция экрана Windows. Выбери
+H.264 для аппаратного видео (цель 10–30 FPS), MJPEG для резервного
+потока или JPEG для отдельных кадров. Захват запускается только по кнопке
+и останавливается, когда закрываешь просмотр.</p>
 <section class="panel"><div class="toolbar">
 <label for="device">Компьютер</label><select id="device"></select>
 <label for="quality">Качество</label>
-<select id="quality"><option value="data">Экономный · 640p</option>
-<option value="balanced" selected>Баланс · 960p</option>
-<option value="quality">Чёткий · 1280p</option></select>
+<select id="quality"><option value="data">Экономный</option>
+<option value="balanced" selected>Баланс</option>
+<option value="quality">Высокий</option></select>
 <label for="mode">Режим</label>
-<select id="mode"><option value="stream" selected>Потоковое видео</option>
-<option value="jpeg">Резервный JPEG</option></select>
+<select id="mode"><option value="h264" selected>H.264 · Аппаратное видео</option>
+<option value="stream">MJPEG · Резервный поток</option>
+<option value="jpeg">JPEG · Отдельные кадры</option></select>
 <button id="start">Начать просмотр</button><button id="stop" disabled>Остановить</button>
 <button id="fullscreen">На весь экран</button>
 <span class="pill" id="state" role="status">Остановлено</span>
 </div>
 <div class="canvas" id="canvas"><div id="placeholder">Просмотр выключен.
 Выберите компьютер и нажмите «Начать просмотр».</div>
-<img id="frame" alt="Текущий кадр компьютера Windows"></div>
+<img id="frame" alt="Текущий кадр компьютера Windows">
+<video id="h264Video" muted playsinline autoplay aria-label="Видеопоток Windows"></video></div>
 <div class="toolbar"><span class="muted" id="metrics">Нет активной трансляции</span>
 <span class="muted" id="updated"></span></div></section>
-<p class="muted">Режим потока непрерывно передаёт кадры пока открыт просмотр,
-но пока это MJPEG, не H.264/WebRTC. Переключение на H.264 запланировано после
-установки и проверки аппаратного кодировщика Windows. В случае ошибки соединения
-можно выбрать резервный JPEG.</p>
+<p class="muted">H.264 использует NVENC и воспроизводится браузером через
+Media Source Extensions. При отсутствии кодировщика или совместимого браузера
+автоматически включится резервный MJPEG. Фактические FPS и задержка зависят
+от сети и состояния интерактивного сеанса Windows.</p>
 <footer>Логин обязателен. Скриншоты в режиме Live View не сохраняются на диск и не
 попадают в историю, если ИИ отдельно не запросил Screenshot через MCP.</footer>
 </div><script>
 const el=id=>document.getElementById(id);
 let active=false, frames=0, transfer=0, controller=null, photoUrl=null;
-let streamWatchdog=null, streamRestarts=0, mode='stream';
+let streamWatchdog=null, streamRestarts=0, mode='h264';
+let h264Abort=null, h264ObjectUrl=null, h264Media=null;
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 function setStatus(message){el('state').textContent=message}
 async function loadDevices(){
@@ -209,6 +213,7 @@ async function poll(){
  }
 }
 function startStream(){
+ stopH264();
  const device=el('device').value, quality=el('quality').value;
  if(!device){setStatus('Устройство не выбрано');stop();return}
  const image=el('frame');
@@ -246,18 +251,132 @@ function startStream(){
   }
  },170000);
 }
+const h264Codec='video/mp4; codecs="avc1.42E02A"';
+function canPlayH264(){
+ return !!(window.MediaSource && MediaSource.isTypeSupported(h264Codec));
+}
+function stopH264(){
+ if(h264Abort){h264Abort.abort();h264Abort=null}
+ const v=el('h264Video');
+ v.pause();v.removeAttribute('src');v.load();v.style.display='none';
+ if(h264ObjectUrl){URL.revokeObjectURL(h264ObjectUrl);h264ObjectUrl=null}
+ h264Media=null;
+}
+function waitMediaOpen(media,signal){
+ return new Promise((resolve,reject)=>{
+  if(media.readyState==='open'){resolve();return}
+  const clean=()=>{media.removeEventListener('sourceopen',ready);signal.removeEventListener('abort',abort)};
+  const ready=()=>{clean();resolve()};
+  const abort=()=>{clean();reject(new Error('Stopped'))};
+  media.addEventListener('sourceopen',ready);
+  signal.addEventListener('abort',abort,{once:true});
+ });
+}
+function updateBuffer(buffer,operation,signal){
+ return new Promise((resolve,reject)=>{
+  if(signal.aborted){reject(new Error('Stopped'));return}
+  const clean=()=>{buffer.removeEventListener('updateend',ready);buffer.removeEventListener('error',error);signal.removeEventListener('abort',abort)};
+  const ready=()=>{clean();resolve()};
+  const error=()=>{clean();reject(new Error('Video decoder rejected stream'))};
+  const abort=()=>{clean();reject(new Error('Stopped'))};
+  buffer.addEventListener('updateend',ready);
+  buffer.addEventListener('error',error);
+  signal.addEventListener('abort',abort,{once:true});
+  try{operation()}catch(e){clean();reject(e)}
+ });
+}
+async function h264Once(){
+ const device=el('device').value, quality=el('quality').value;
+ if(!device)throw new Error('Компьютер не выбран');
+ const video=el('h264Video');
+ h264Abort=new AbortController();
+ const signal=h264Abort.signal;
+ h264Media=new MediaSource();
+ h264ObjectUrl=URL.createObjectURL(h264Media);
+ video.src=h264ObjectUrl;
+ video.muted=true;video.autoplay=true;video.playsInline=true;
+ video.style.display='block';
+ el('frame').style.display='none';
+ el('placeholder').style.display='none';
+ await waitMediaOpen(h264Media,signal);
+ if(signal.aborted)throw new Error('Stopped');
+ const buffer=h264Media.addSourceBuffer(h264Codec);
+ buffer.mode='segments';
+ const url='/portalmcp/api/live/h264/'+encodeURIComponent(device)+'/'+quality+'.mp4';
+ const response=await fetch(url,{cache:'no-store',signal,headers:{'X-LunexPC-Video':'active'}});
+ if(!response.ok)throw new Error('HTTP '+response.status);
+ if(!response.body)throw new Error('No stream response');
+ const reader=response.body.getReader();
+ const profileName={data:'480p / 10 FPS',balanced:'720p / 20 FPS',quality:'1080p / 30 FPS'}[quality];
+ let received=0;
+ try{
+  video.play().catch(()=>{});
+  while(active && mode==='h264' && !signal.aborted){
+   const part=await reader.read();
+   if(part.done)break;
+   if(!part.value || !part.value.byteLength)continue;
+   await updateBuffer(buffer,()=>buffer.appendBuffer(part.value),signal);
+   received+=part.value.byteLength;
+   if(video.buffered.length){
+    const last=video.buffered.length-1;
+    const liveEdge=video.buffered.end(last);
+    if(liveEdge-video.currentTime>2.5)video.currentTime=Math.max(0,liveEdge-0.5);
+    if(liveEdge-video.buffered.start(0)>8){
+     const trimBefore=Math.max(0,liveEdge-4);
+     await updateBuffer(buffer,()=>buffer.remove(0,trimBefore),signal);
+    }
+   }
+   el('metrics').textContent='H.264 NVENC · профиль '+profileName+' · получено '+Math.round(received/1024)+' КБ';
+   el('updated').textContent=new Date().toLocaleTimeString('ru-RU');
+   setStatus('H.264 видео подключено');
+  }
+ }finally{
+  try{await reader.cancel()}catch(e){}
+ }
+}
+async function h264Loop(){
+ if(!canPlayH264()){
+  mode='stream';el('mode').value='stream';
+  setStatus('Нет поддержки H.264 MSE, переключаюсь на MJPEG');
+  startStream();return;
+ }
+ let failures=0;
+ while(active && mode==='h264'){
+  try{
+   await h264Once();
+   if(!active)break;
+   failures=0;
+   setStatus('Повторное подключение H.264...');
+  }catch(error){
+   if(!active || mode!=='h264')break;
+   failures++;
+   if(failures>=2){
+    stopH264();
+    mode='stream';el('mode').value='stream';
+    setStatus('H.264 недоступен, включаю резервный MJPEG');
+    startStream();return;
+   }
+   setStatus('Повтор H.264: '+error.message);
+  }finally{
+   stopH264();
+  }
+  if(active && mode==='h264')await pause(2500);
+ }
+}
 el('start').addEventListener('click',()=>{
  if(active)return;active=true;frames=0;transfer=0;
  mode=el('mode').value;
  el('start').disabled=true;el('stop').disabled=false;
  el('device').disabled=true;el('quality').disabled=true;el('mode').disabled=true;
  setStatus('Подключение...');
- if(mode==='stream')startStream();
+ if(mode==='h264')h264Loop();
+ else if(mode==='stream')startStream();
  else poll().finally(()=>{if(active && mode==='jpeg')stop()});
 });
 function stop(){
  active=false;
  if(controller)controller.abort();
+ stopH264();
  if(streamWatchdog)clearInterval(streamWatchdog);
  streamWatchdog=null;
  const img=el('frame');img.onerror=null;img.onload=null;

@@ -12,12 +12,14 @@ import os
 import sqlite3
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
+import time
 from urllib.parse import urlsplit
 from panel.auth import PanelAuth
 from panel.monitor_html import monitor_page
 from panel.portal_html import devices_page, live_page
 from panel.live_view import LiveFrameService, LiveError, probe_devices
 from panel.mjpeg_stream import StreamGate, StreamBusy, stream_frames, content_type
+from panel.h264_proxy import open_h264_stream, MAX_H264_BYTES, MAX_H264_SECONDS
 from server.screen_history import ScreenHistory
 import re
 
@@ -252,6 +254,9 @@ class PanelHandler(BaseHTTPRequestHandler):
                 self._write(200, result, "application/json; charset=utf-8")
             except (OSError,sqlite3.Error,ValueError):
                 self._write(503, b'{"error":"device status unavailable"}', "application/json")
+        elif re.fullmatch(r"/api/live/h264/[A-Za-z0-9_-]{1,64}/(data|balanced|quality)\.mp4",
+                          parsed.path):
+            self._serve_h264(parsed.path)
         elif re.fullmatch(r"/api/live/stream/[A-Za-z0-9_-]{1,64}/(data|balanced|quality)\.mjpg",
                           parsed.path):
             self._serve_mjpeg(parsed.path)
@@ -308,6 +313,69 @@ class PanelHandler(BaseHTTPRequestHandler):
                 self._write(503, b'{"error":"unavailable"}', "application/json")
         else:
             self._write(404, b"Not found", "text/plain")
+
+    def _serve_h264(self, path):
+        # A browser fetch must originate from the authenticated portal,
+        # never from a foreign page embedding the user's cached Basic auth.
+        if (len(self.headers.get_all("Origin", [])) > 1
+                or (self.headers.get("Origin") is not None
+                    and self.headers.get("Origin") not in (
+                      "https://rikagro.ru", "http://127.0.0.1:"+str(self.server.server_port),
+                      "http://localhost:"+str(self.server.server_port)))
+                or self.headers.get("Sec-Fetch-Site") in ("cross-site", "same-site")
+                or len(self.headers.get_all("X-LunexPC-Video", [])) != 1
+                or self.headers.get("X-LunexPC-Video") != "active"):
+            self._write(403,b"Video requires an explicit same-origin viewer","text/plain")
+            return
+        gate=getattr(self.server,"h264_gate",None)
+        if gate is None:
+            self._write(503,b"H264 transport disabled","text/plain")
+            return
+        parts=path.split("/")
+        device=parts[4]
+        profile=parts[5][:-4]
+        try:
+            gate.acquire()
+        except StreamBusy:
+            self._write(503,b"Video viewer limit reached","text/plain")
+            return
+        conn=None
+        upstream=None
+        try:
+            try:
+                conn,upstream=open_h264_stream(self._registry(),device,profile)
+            except (LiveError, OSError, sqlite3.Error, http.client.HTTPException):
+                self._write(503,b"Windows H264 service unavailable","text/plain")
+                return
+            self.send_response(200)
+            self.send_header("Content-Type",'video/mp4; codecs="avc1.42E02A"')
+            self.send_header("Cache-Control","private, no-store, max-age=0")
+            self.send_header("X-Content-Type-Options","nosniff")
+            self.send_header("X-Accel-Buffering","no")
+            self.send_header("Referrer-Policy","no-referrer")
+            self.send_header("Connection","close")
+            self.end_headers()
+            self.close_connection=True
+            sent=0
+            started=time.monotonic()
+            while sent<MAX_H264_BYTES and time.monotonic()-started<MAX_H264_SECONDS:
+                try:
+                    chunk=upstream.read1(32768)
+                    if not chunk:
+                        break
+                    sent+=len(chunk)
+                    if sent>MAX_H264_BYTES:
+                        break
+                    self.wfile.write(chunk)
+                    self.wfile.flush()
+                except (BrokenPipeError,ConnectionResetError,TimeoutError,OSError):
+                    break
+        finally:
+            if upstream is not None:
+                upstream.close()
+            if conn is not None:
+                conn.close()
+            gate.release()
 
     def _serve_mjpeg(self, path):
         # A streaming URL can be used as an img.src. Browser Basic auth is
@@ -423,8 +491,8 @@ class PanelHandler(BaseHTTPRequestHandler):
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Content-Security-Policy",
                          "default-src 'self'; script-src 'unsafe-inline'; "
-                         "style-src 'unsafe-inline'; img-src 'self'; "
-                         "connect-src 'self'; frame-ancestors 'none'")
+                         "style-src 'unsafe-inline'; img-src 'self' blob:; "
+                         "media-src 'self' blob:; connect-src 'self'; frame-ancestors 'none'")
         self.send_header("Referrer-Policy", "no-referrer")
         self.end_headers()
         self.wfile.write(body)
@@ -452,6 +520,7 @@ def main():
     server.registry_path = GATEWAY_REGISTRY
     server.live_view = LiveFrameService(GATEWAY_REGISTRY)
     server.stream_gate = StreamGate()
+    server.h264_gate = StreamGate(1)
     server.screen_history = ScreenHistory(args.screens_dir)
     server.serve_forever()
 

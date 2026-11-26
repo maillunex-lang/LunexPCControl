@@ -34,6 +34,7 @@ FILES = {
     "panel/portal_html.py": APP_DIR / "panel/portal_html.py",
     "panel/live_view.py": APP_DIR / "panel/live_view.py",
     "panel/mjpeg_stream.py": APP_DIR / "panel/mjpeg_stream.py",
+    "panel/h264_proxy.py": APP_DIR / "panel/h264_proxy.py",
     "panel/auth.py": APP_DIR / "panel/auth.py",
     "installer/backup.py": APP_DIR / "installer/backup.py",
     "installer/install.py": APP_DIR / "installer/install.py",
