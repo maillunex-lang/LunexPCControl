@@ -7,6 +7,6 @@ Status: prototype. Live Windows-MCP screenshot test passed locally in an interac
 ## Target architecture
 ChatGPT private plugin -> authenticated HTTPS MCP gateway on a Linux VPS -> authenticated outbound tunnel -> Windows desktop agent.
 
-Target: portable single-command VPS installation, separate Windows enrollment, no public RDP or unauthenticated MCP ports. Upstream: CursorTouch/Windows-MCP at audited pinned commit. A local screenshot test was performed with the screenshot-only tool and upstream control-consent mechanism. The HTTPS gateway and complete end-to-end authorization are not deployed. A supervised SSH reverse tunnel and HTTP round-trip have been tested and shut down.
+Target: portable single-command VPS installation, separate Windows enrollment, no public RDP or unauthenticated MCP ports. Upstream: CursorTouch/Windows-MCP at audited pinned commit. A local screenshot test was performed with the screenshot-only tool and upstream control-consent mechanism. The HTTPS gateway and complete end-to-end authorization are not deployed. A supervised SSH reverse tunnel and real Windows-MCP screenshot through the authenticated VPS gateway have passed end-to-end tests and been shut down.
 
 See [roadmap](docs/ROADMAP.md).

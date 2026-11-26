@@ -18,16 +18,18 @@ and request bodies to 4 MiB. Authentication precedes proxying, redirect
 responses are denied, and headers are allowlisted.
 
 **Known blockers (not production ready):**
-- SSE responses now flush each received upstream chunk immediately without\n  buffering full events; the upstream socket currently has a 20-second inactivity\n  timeout and streaming is not yet tested with real Windows-MCP. The downstream\n  TLS reverse proxy must disable response buffering and allow long-lived requests.
+- SSE responses now flush each received upstream chunk immediately without
+  buffering full events; the upstream socket currently has a 20-second inactivity
+  timeout and sustained multi-minute SSE sessions have not been load-tested. The downstream
+  TLS reverse proxy must disable response buffering and allow long-lived requests.
 - HTTP request body framing has not been fuzzed against request smuggling.
 - Device enrollment must bind a tunnel port and per-device server-side secrets
   with a protected provisioning path. The generic Registry in enrollment.py
   is a separate prototype and is not yet wired into this gateway.
-- Missing per-user policy/consent enforcement, rate limits, audit events,
-  durable jobs, TLS proxy configuration, lifecycle management and live Windows
-  screenshot verification.
-- Recheck upstream Windows-MCP's bearer format and actual MCP endpoint before
-  attempting real end-to-end deployment.
+- Missing gateway-side per-user tool policy/consent enforcement, rate limits,
+  audit events, durable jobs, TLS proxy configuration and production lifecycle management.
+- Upstream bearer authentication and the MCP endpoint were verified live.
+  A production deployment still requires a dedicated security review.
 
 ## Verified local integration (2026-11-26)
 
@@ -38,8 +40,7 @@ gateway client and upstream Windows credentials, revoked device access,
 rejection of duplicate Authorization and Content-Length headers, restricted
 SQLite registry permissions and symlink rejection.
 
-These tests use an in-process MCP simulator, not the actual Windows desktop.
-The Windows-MCP screenshot and SSH HTTP tunnel have separately passed live
-tests, but the complete end-to-end screenshot through the VPS gateway has
-not yet been performed. HTTPS and ChatGPT plugin connectivity remain pending.
+These automated tests use an in-process MCP simulator. A separate real end-to-end
+MCP screenshot test subsequently passed on 2026-11-26; see E2E-VALIDATION.md.
+HTTPS and ChatGPT plugin connectivity remain pending.
 Do not publish port 18880 as plain HTTP.

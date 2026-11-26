@@ -49,8 +49,7 @@ tunnel was stopped with Ctrl+C. A final independent check confirmed no
 listening sockets on the test ports. No sshd configuration, VPS firewall,
 nginx, gaming process, or public MCP endpoint was changed.
 
-This validates the SSH transport and host authorization, NOT the complete
-remote Windows-MCP screenshot path. Next needed: securely provision a
-separate upstream MCP bearer token, test the authenticated MCP gateway
-through this tunnel, and deploy the TLS endpoint behind a reviewed proxy.
-Only then consider a consent-aware, supervised tunnel lifecycle.
+That initial test validated SSH transport only. A subsequent real Windows-MCP
+screenshot test through the gateway also passed on 2026-11-26. See
+E2E-VALIDATION.md. Next required: a reviewed TLS endpoint and a supervised
+consent-aware device lifecycle. Never expose the raw MCP port publicly.

@@ -2,7 +2,7 @@
 
 - [ ] PC-01 Audit upstream Windows-MCP, license, transport and screenshot support.
 - [ ] PC-02 Build authenticated gateway and device enrollment (prototypes implemented; restricted reverse SSH tunnel validated end-to-end for test HTTP, MCP gateway JSON-RPC sequence and credential separation tested locally; HTTPS gateway not deployed).
-- [ ] PC-03 Integrate Windows desktop agent and test interactive session behavior (local interactive Windows MCP screenshot and separate HTTP-over-SSH transport validated on 2026-11-26; gateway-mediated remote screenshot not yet tested).
+- [x] PC-03 Integrate Windows desktop agent and test interactive session behavior (2026-11-26: real screenshot through Windows MCP, SSH tunnel, authenticated VPS gateway and test client; only Screenshot and ControlStatus exposed).
 - [ ] PC-04 Add optional protected RDP access.
 - [ ] PC-05 Add PowerShell, WSL2 and development workflows.
 - [ ] PC-06 Add durable jobs, cancellation and audit logging.
