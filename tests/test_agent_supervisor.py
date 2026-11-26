@@ -8,7 +8,7 @@ class AgentSupervisorTests(unittest.TestCase):
     def test_interactive_only_and_pinned_identity(self):
         for segment in ("[ValidateSet('Check','Run')]", "UserInteractive",
                         "SessionId", "ssh\\known_hosts", "ssh\\id_ed25519",
-                        "'Screenshot,ControlStatus'", "'strict'",
+                        "'Screenshot,ControlStatus'", "'balanced'",
                         "Start-ReverseTunnel.ps1", "Stop-Process",
                         "MaxRetries", "StopOnDisconnect",
                         "'serve','--transport','streamable-http'",

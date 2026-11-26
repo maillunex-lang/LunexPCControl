@@ -32,3 +32,13 @@ This is an economical near-live screenshot viewer, not an H.264/WebRTC video str
 - The panel now needs Python Pillow in addition to cryptography. Portable installation must verify both are present.
 - Source, tests and UI can be updated separately from the live Windows agent. Existing services should only be restarted after unit checks and a rollback copy.
 - ChatGPT's own MCP plugin HTTPS/OAuth compatibility still needs final integration testing.
+
+
+## Windows Screenshot desktop ownership
+
+Windows-MCP upstream classifies Screenshot as a non-interfering tool.
+The authenticated screen-only agent therefore uses the balanced ownership
+policy. This permits an owner-initiated Live View to display frames while
+the local user is active. Direct input tools still require desktop ownership
+and they remain entirely absent from the agent and gateway allowlists.
+This mode does not bypass the Windows MCP bearer token or the portal login.

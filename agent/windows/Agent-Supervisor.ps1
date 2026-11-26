@@ -120,7 +120,7 @@ try {
     $retry = 0
     while ($MaxRetries -eq 0 -or $retry -lt $MaxRetries) {
         $agentProcess = Start-Process -FilePath $agent -ArgumentList @(
-            'serve','--transport','streamable-http','--host','127.0.0.1','--port','18789','--tools','Screenshot,ControlStatus','--control-policy','strict'
+            'serve','--transport','streamable-http','--host','127.0.0.1','--port','18789','--tools','Screenshot,ControlStatus','--control-policy','balanced'
         ) -PassThru -WindowStyle Hidden
         $processes.Add($agentProcess)
         $listening = $false
