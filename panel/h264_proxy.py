@@ -11,6 +11,7 @@ import hmac
 import http.client
 import re
 import sqlite3
+import time
 
 from panel.live_view import LiveError
 
@@ -57,7 +58,9 @@ def open_h264_stream(registry, device, profile, connection_factory=None):
     video_port,video_key=video_route(registry,device,profile)
     if connection_factory is None:
         connection_factory=http.client.HTTPConnection
-    attempts = (profile, "data") if profile != "data" else (profile,)
+    # RDP desktop capture sometimes fails immediately after an encoder
+    # exits. Retry only a transient 503, never authorization failures.
+    attempts = (profile, "data", "data") if profile != "data" else (profile, profile)
     for index, requested_profile in enumerate(attempts):
         conn=connection_factory("127.0.0.1",video_port,timeout=18)
         try:
@@ -71,6 +74,7 @@ def open_h264_stream(registry, device, profile, connection_factory=None):
                 response.read(min(128,MAX_H264_BYTES))
                 if response.status == 503 and index + 1 < len(attempts):
                     conn.close()
+                    time.sleep(0.5)
                     continue
                 raise LiveError("Windows video agent unavailable")
             media=response.getheader("Content-Type","")

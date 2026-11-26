@@ -65,9 +65,29 @@ class H264RelayTests(unittest.TestCase):
             def getresponse(self):
                 return SimulatedResponse(503 if "balanced" in self.route else 200)
             def close(self):pass
-        conn,resp=open_h264_stream(self.registry,"lunex","balanced",SimulatedConnection)
+        from unittest.mock import patch
+        with patch("panel.h264_proxy.time.sleep"):
+            conn,resp=open_h264_stream(self.registry,"lunex","balanced",SimulatedConnection)
         self.assertEqual(resp.status,200)
         self.assertEqual(seen,["/video/h264/balanced.mp4","/video/h264/data.mp4"])
+
+    def test_data_profile_retries_only_503(self):
+        class Response:
+            def __init__(self,code):self.status=code
+            def getheader(self,name,default=""):return "video/mp4"
+            def read(self,n):return b"Unavailable"
+        seen=[]
+        class Connection:
+            def __init__(self,*args,**kwargs):pass
+            def request(self,method,path,headers):seen.append(path)
+            def getresponse(self):
+                return Response(503 if len(seen)==1 else 200)
+            def close(self):pass
+        from unittest.mock import patch
+        with patch("panel.h264_proxy.time.sleep"):
+            conn,resp=open_h264_stream(self.registry,"lunex","data",Connection)
+        self.assertEqual(resp.status,200)
+        self.assertEqual(seen,["/video/h264/data.mp4"]*2)
 
     def test_no_fallback_on_401_credential_refusal(self):
         class Response:
