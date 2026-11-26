@@ -52,6 +52,7 @@ FILES = {
     "deploy/lunexpc-connector.service": APP_DIR / "deploy/lunexpc-connector.service",
     "deploy/lunexpc-oauth.service": APP_DIR / "deploy/lunexpc-oauth.service",
     "deploy/nginx-lunexpc-oauth.conf": APP_DIR / "deploy/nginx-lunexpc-oauth.conf",
+    "deploy/nginx-lunexpc.conf": APP_DIR / "deploy/nginx-lunexpc.conf",
     "deploy/lunexpc-panel.service": pathlib.Path("/etc/systemd/system/lunexpc-panel.service"),
     "deploy/lunexpc-gateway.service": pathlib.Path("/etc/systemd/system/lunexpc-gateway.service"),
     "deploy/lunexpc-gateway.logrotate": pathlib.Path("/etc/logrotate.d/lunexpc-gateway"),

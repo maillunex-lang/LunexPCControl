@@ -117,3 +117,18 @@ login and verify a Windows ControlStatus tool call from inside ChatGPT.
 - The neighboring DevCore protected-resource OAuth metadata is unchanged.
 - The real owner login and a tool call from ChatGPT still require the owner
   to complete the connection UI; no owner password was read for public tests.
+
+
+## Deployment source and restart
+
+The checked-in main HTTPS include dispatcher is deploy/nginx-lunexpc.conf;
+its public subroutes are defined by deploy/nginx-lunexpc-chatgpt-alpha.conf
+and deploy/nginx-lunexpc-oauth.conf. The raw /lunexpc gateway remains closed.
+Install only in the correct HTTPS virtual host, then run nginx -t before
+reloading Nginx. The optional lunexpc-oauth.service is enabled for reboot
+persistence only after successful local and public checks.
+
+The existing private plugin was updated in-place to version 0.1.1,
+preserving its URL, account scope and read-only tools. Manual custom MCP
+connections can use the same resource URL and OAuth discovery without
+installing an additional plugin.

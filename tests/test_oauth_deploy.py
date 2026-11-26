@@ -49,6 +49,14 @@ class OAuthDeploymentTests(unittest.TestCase):
             self.assertIn(locator,public)
         self.assertNotIn("http://0.0.0.0",protected+public)
 
+    def test_reproducible_nginx_dispatch_template(self):
+        source=(ROOT/"deploy/nginx-lunexpc.conf").read_text()
+        self.assertIn("location ^~ /lunexpc/ {",source)
+        self.assertIn("return 404;",source)
+        self.assertIn("include /etc/nginx/snippets/lunexpc-portal.conf;",source)
+        self.assertIn("include /etc/nginx/snippets/lunexpc-chatgpt-alpha.conf;",source)
+        self.assertIn("include /etc/nginx/snippets/lunexpc-oauth.conf;",source)
+
     def test_plugin_uses_dcr_pkce_with_read_only_scope(self):
         manifest=json.loads((ROOT/"chatgpt-plugin/mcp.json").read_text())
         auth=manifest["mcpServers"]["lunexpc-readonly"]["extensions"]["com.openai"]["auth"]
