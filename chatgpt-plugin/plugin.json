@@ -1,0 +1,23 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "lunexpc-control",
+  "version": "0.1.0",
+  "description": "Private read-only MCP connection to LunexPCControl Windows desktop status and screenshots through your own VPS.",
+  "author": {"name": "Lunex"},
+  "homepage": "https://rikagro.ru/portalmcp/",
+  "repository": "https://github.com/maillunex-lang/LunexPCControl",
+  "keywords": ["lunex", "windows", "remote-desktop", "mcp", "read-only"],
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "LunexPCControl",
+        "shortDescription": "Windows screen and status",
+        "longDescription": "Connect ChatGPT to your own LunexPCControl VPS for read-only Windows screenshot and control-status tools. No shell, mouse, keyboard, file access or unattended video viewing in Alpha 0.1.",
+        "developerName": "Lunex",
+        "category": "Productivity",
+        "capabilities": [],
+        "defaultPrompt": "Use LunexPCControl to check whether my Windows desktop is reachable and show a screenshot."
+      }
+    }
+  }
+}

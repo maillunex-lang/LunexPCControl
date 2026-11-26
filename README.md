@@ -54,6 +54,14 @@ state and can be verified and staged into a private directory. It does
 not activate restored credentials or reconfigure Windows, DNS and HTTPS.
 See [state migration](docs/MIGRATE-STATE.md).
 
+## Private ChatGPT plugin Alpha 0.1
+
+The private read-only plugin source is in [chatgpt-plugin/](chatgpt-plugin/).
+It connects via a dedicated Bearer key over an exact POST-only HTTPS route
+to the existing Windows MCP gateway. Only Screenshot and ControlStatus
+are currently available. No shell, mouse, keyboard or file access is
+exposed. See [setup and security](docs/CHATGPT-ALPHA-01.md).
+
 ## Portable VPS install
 
 A single bootstrap command can install a NEW Ubuntu 24.04/26.04 VPS from

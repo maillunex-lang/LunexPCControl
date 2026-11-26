@@ -63,3 +63,14 @@ No embedded credentials; per-device authentication; least privilege; explicit ap
 - [ ] Reconfigure Windows SSH host-key pins, TLS and DNS after moving VPS
 - [ ] Install and validate on another clean supported Ubuntu VPS
 - [ ] Verify full browser video and MCP functionality on that VPS
+
+
+## Private ChatGPT plugin Alpha 0.1
+
+- [x] Package source: plugin.json, mcp.json and scoped workflow skill
+- [x] Dedicated read-only HTTPS gateway route and revocable Bearer-key script
+- [x] Static fail-closed tests for endpoint, keys, and plugin metadata
+- [ ] Deploy route on production Nginx and verify real remote MCP handshake
+- [ ] Install private plugin and connect via owner-only credential UI
+- [ ] Verify screenshot and status from ChatGPT itself
+- [ ] Expand to device listing, monitor metrics and explicit input control
