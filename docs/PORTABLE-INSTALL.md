@@ -152,3 +152,12 @@ python3-cryptography can be installed separately if necessary. A private
 0700 screenshot folder is created under /var/lib/lunexpc-gateway by the
 dedicated unprivileged service. This directory, its history key and
 encrypted screenshots are excluded from public GitHub source.
+
+
+## Private device portal dependencies
+
+Live View converts screenshots in memory using the system Python Pillow
+module. The installer now validates cryptography and PIL before installation.
+On Ubuntu, add python3-pil if not installed. The portal is loopback-only by
+default and does not expose any new Windows inbound ports. A changing Windows
+client IP does not require modifying its registered reverse SSH route.

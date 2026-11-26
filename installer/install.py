@@ -31,6 +31,8 @@ FILES = {
     "deploy/verify-gateway.sh": APP_DIR / "deploy/verify-gateway.sh",
     "panel/server.py": APP_DIR / "panel/server.py",
     "panel/monitor_html.py": APP_DIR / "panel/monitor_html.py",
+    "panel/portal_html.py": APP_DIR / "panel/portal_html.py",
+    "panel/live_view.py": APP_DIR / "panel/live_view.py",
     "panel/auth.py": APP_DIR / "panel/auth.py",
     "installer/backup.py": APP_DIR / "installer/backup.py",
     "installer/install.py": APP_DIR / "installer/install.py",
@@ -88,7 +90,7 @@ def check_host():
         raise RuntimeError("Python >= 3.11 required")
     for binary in ("systemctl", "systemd-analyze", "useradd", "install", "runuser"):
         command("sh", "-c", f"command -v {binary} >/dev/null")
-    command("/usr/bin/python3", "-c", "import cryptography")
+    command("/usr/bin/python3", "-c", "import cryptography, PIL")
 
 
 def apply_install():

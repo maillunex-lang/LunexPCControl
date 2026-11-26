@@ -3,8 +3,8 @@
 [CmdletBinding()]
 param(
     [ValidateSet('Check','Run')][string]$Mode = 'Check',
-    [ValidateRange(2,120)][int]$RetrySeconds = 10,
-    [ValidateRange(1,30)][int]$MaxRetries = 8,
+    [ValidateRange(2,120)][int]$RetrySeconds = 5,
+    [ValidateRange(0,30)][int]$MaxRetries = 0,
     [string]$InstallRoot = '',
     [switch]$StopOnDisconnect
 )
@@ -38,6 +38,9 @@ if ($Mode -eq 'Check') {
         PrivateMcpCredentialAvailable = $authFilePresent
         EligibleForRun = ($isInteractive -and $agentPresent -and $tunnelScriptPresent -and $identityPresent -and $hostsPresent -and $authFilePresent)
         AutoStartConfiguredByThisScript = $false
+        RetryMode = $(if ($MaxRetries -eq 0) { 'unlimited, until stopped' } else { "capped at $MaxRetries" })
+        OutboundOnly = $true
+        DynamicClientIpSupported = $true
     } | Format-List
     return
 }
@@ -87,6 +90,12 @@ function Test-McpAuthentication {
 # Never spawn any shell or arbitrary command through this supervisor.
 $processes = [System.Collections.Generic.List[System.Diagnostics.Process]]::new()
 $priorAuth = [Environment]::GetEnvironmentVariable('WINDOWS_MCP_AUTH_KEY', 'Process')
+function Get-RetryDelay([int]$attempt) {
+    # Bounded exponential backoff makes router failover and dynamic IP
+    # changes recover without flooding the remote SSH service.
+    $power = [Math]::Min([Math]::Max($attempt - 1, 0), 5)
+    return [int][Math]::Min(120, $RetrySeconds * [Math]::Pow(2, $power))
+}
 function Stop-OwnedTunnel {
     # We checked no matching SSH tunnel existed before launching ours.
     # Windows PowerShell can exit before its spawned ssh.exe child.
@@ -109,7 +118,7 @@ function Stop-SupervisedTree([System.Diagnostics.Process]$child) {
 try {
     $env:WINDOWS_MCP_AUTH_KEY = $key
     $retry = 0
-    while ($retry -lt $MaxRetries) {
+    while ($MaxRetries -eq 0 -or $retry -lt $MaxRetries) {
         $agentProcess = Start-Process -FilePath $agent -ArgumentList @(
             'serve','--transport','streamable-http','--host','127.0.0.1','--port','18789','--tools','Screenshot,ControlStatus','--control-policy','strict'
         ) -PassThru -WindowStyle Hidden
@@ -131,7 +140,9 @@ try {
             $failure = if ($agentProcess.HasExited) { "process exited with code $($agentProcess.ExitCode)" } else { 'port 18789 did not become ready' }
             Write-Warning "Windows MCP was not ready ($failure; attempt $retry)"
             Stop-SupervisedTree $agentProcess
-            if ($retry -lt $MaxRetries) { Start-Sleep -Seconds $RetrySeconds }
+            if ($MaxRetries -eq 0 -or $retry -lt $MaxRetries) {
+                Start-Sleep -Seconds (Get-RetryDelay $retry)
+            }
             continue
         }
         # A successful TCP connection is not proof of authentication.
@@ -143,6 +154,7 @@ try {
             '-NoProfile','-ExecutionPolicy','Bypass','-File', ('"' + $sshTunnel + '"')
         ) -PassThru -WindowStyle Hidden
         $processes.Add($tunnelProcess)
+        $connectionStarted = Get-Date
         try {
             while (-not $tunnelProcess.HasExited -and -not $agentProcess.HasExited) {
                 Start-Sleep -Seconds 3
@@ -153,10 +165,16 @@ try {
             Stop-OwnedTunnel
             Stop-SupervisedTree $agentProcess
         }
-        $retry++
         if ($StopOnDisconnect) { break }
-        Write-Warning "Agent/tunnel disconnected; retry attempt $retry of $MaxRetries"
-        if ($retry -lt $MaxRetries) { Start-Sleep -Seconds $RetrySeconds }
+        # Healthy sessions reset the failure counter. Network changes,
+        # sleep/wake and a new DHCP address do not consume a finite budget.
+        $connectedSeconds = ((Get-Date) - $connectionStarted).TotalSeconds
+        if ($connectedSeconds -gt 90) { $retry = 0 }
+        $retry++
+        Write-Warning "Agent/tunnel disconnected; retry attempt $retry"
+        if ($MaxRetries -eq 0 -or $retry -lt $MaxRetries) {
+            Start-Sleep -Seconds (Get-RetryDelay $retry)
+        }
     }
 }
 finally {

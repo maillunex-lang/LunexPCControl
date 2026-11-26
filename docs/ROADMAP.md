@@ -24,3 +24,17 @@ No embedded credentials; per-device authentication; least privilege; explicit ap
 - [ ] Fresh real Windows agent + ChatGPT MCP end-to-end screenshot validation
 - [ ] Independent continuous live video capture (future opt-in if desired)
 - [ ] Durable off-VPS history-key backup and production restore
+
+
+## Dynamic IP and private Live View portal (2026-11-26)
+
+- [x] Outbound SSH tunnel independent of Windows public IP
+- [x] Unlimited bounded-backoff reconnect supervisor in source
+- [x] User-session login task setup in source (opt-in)
+- [x] Authenticated devices page with online/offline tunnel status
+- [x] Optimized on-demand 640/960/1280px JPEG preview, max 1fps
+- [x] Capture-only-while-viewing, no idle screen recording
+- [x] Browser route validation, strict source bounds and transport tests
+- [ ] End-user browser-based secure device enrollment and key rotation
+- [ ] Review smoother WebRTC video if needed after measuring bandwidth
+- [ ] Standalone ChatGPT HTTPS MCP plugin and owner authorization

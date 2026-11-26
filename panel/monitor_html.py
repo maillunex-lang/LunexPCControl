@@ -52,7 +52,8 @@ footer{margin:24px 0;color:#7990a6;font-size:12px}
 </style></head><body><div class="wrap">
 <div class="top"><div><div class="brand">Lunex • PC Control</div><h1>Мониторинг экрана</h1></div>
 <div class="pill">🔒 Приватная история ИИ</div></div>
-<nav><a href="/">Обзор</a><a aria-current="page" href="/monitor">Мониторинг экрана</a></nav>
+<nav><a href="/">Обзор</a><a href="/devices">Устройства</a>
+<a href="/live">Live View</a><a aria-current="page" href="/monitor">История снимков</a></nav>
 <p class="sub">Снимки появляются автоматически, когда подключённый ИИ использует разрешённый инструмент Screenshot.
 Обновление просмотра каждые 3 секунды. Это не непрерывная видеотрансляция.</p>
 <div class="grid"><section class="card">

@@ -15,6 +15,8 @@ from pathlib import Path
 from urllib.parse import urlsplit
 from panel.auth import PanelAuth
 from panel.monitor_html import monitor_page
+from panel.portal_html import devices_page, live_page
+from panel.live_view import LiveFrameService, LiveError, probe_devices
 from server.screen_history import ScreenHistory
 import re
 
@@ -124,15 +126,17 @@ footer{margin-top:32px;color:#8498ab;font-size:12px}
 <p class="sub">Центр управления и мониторинга ИИ.</p>
 <nav style="display:flex;gap:9px;margin-bottom:20px;flex-wrap:wrap">
 <a style="color:#b6ddff;padding:10px 15px;border:1px solid #30475c;border-radius:12px" href="/">Обзор</a>
-<a style="color:#b6ddff;padding:10px 15px;border:1px solid #30475c;border-radius:12px" href="/monitor">Мониторинг экрана</a>
+<a style="color:#b6ddff;padding:10px 15px;border:1px solid #30475c;border-radius:12px" href="/devices">Устройства</a>
+<a style="color:#b6ddff;padding:10px 15px;border:1px solid #30475c;border-radius:12px" href="/live">Live View</a>
+<a style="color:#b6ddff;padding:10px 15px;border:1px solid #30475c;border-radius:12px" href="/monitor">История</a>
 </nav>
 <section class="grid">
 <div class="card"><div class="label">Зарегистрированные устройства</div>
 <div class="value" id="devices">...</div></div>
 <div class="card"><div class="label">Активные разрешения клиентов</div>
 <div class="value" id="clients">...</div></div>
-<div class="card"><div class="label">Режим доступа</div>
-<div class="value status" style="font-size:21px" id="mode">...</div></div>
+<div class="card"><div class="label">Устройств в сети</div>
+<div class="value status" id="online">...</div></div>
 </section>
 <section class="card"><h2>Последние события</h2>
 <p class="note">В журнале нет паролей, скриншотов и текстов команд.</p>
@@ -153,7 +157,13 @@ async function load(){
  const data=await response.json();
  document.getElementById('devices').textContent=data.devices;
  document.getElementById('clients').textContent=data.active_clients;
- document.getElementById('mode').textContent='Чтение';
+ try{
+   const devicesResponse=await fetch('/api/devices',{cache:'no-store'});
+   if(devicesResponse.ok){
+     const devices=await devicesResponse.json();
+     document.getElementById('online').textContent=devices.devices.filter(x=>x.tunnel_online).length;
+   }else{document.getElementById('online').textContent='—'}
+ }catch(e){document.getElementById('online').textContent='—'}
  const root=document.getElementById('events');root.replaceChildren();
  if(!data.audit.length){const r=root.insertRow();const c=r.insertCell();
    c.colSpan=4;c.textContent='Событий пока нет';return}
@@ -164,7 +174,8 @@ async function load(){
   }
  }
 }
-load().catch(()=>{document.getElementById('events').textContent='Ошибка загрузки'})
+load().catch(()=>{document.getElementById('events').textContent='Ошибка загрузки'});
+setInterval(()=>load().catch(()=>{}),10000)
 </script></body></html>""".encode("utf-8")
 
 
@@ -202,6 +213,9 @@ class PanelHandler(BaseHTTPRequestHandler):
     def _screens(self):
         return getattr(self.server, "screen_history", None)
 
+    def _registry(self):
+        return getattr(self.server, "registry_path", GATEWAY_REGISTRY)
+
     def do_GET(self):
         if not self._trusted_host():
             self._write(403, b"Forbidden", "text/plain")
@@ -216,6 +230,38 @@ class PanelHandler(BaseHTTPRequestHandler):
             self._write(200, html_page(), "text/html; charset=utf-8")
         elif parsed.path == "/monitor":
             self._write(200, monitor_page(), "text/html; charset=utf-8")
+        elif parsed.path == "/devices":
+            self._write(200, devices_page(), "text/html; charset=utf-8")
+        elif parsed.path == "/live":
+            self._write(200, live_page(), "text/html; charset=utf-8")
+        elif parsed.path == "/api/devices":
+            try:
+                devices = probe_devices(self._registry())
+                result = json.dumps({"devices":devices, "total":len(devices)},
+                                    separators=(",",":")).encode()
+                self._write(200, result, "application/json; charset=utf-8")
+            except (OSError,sqlite3.Error,ValueError):
+                self._write(503, b'{"error":"device status unavailable"}', "application/json")
+        elif re.fullmatch(r"/api/live/frame/[A-Za-z0-9_-]{1,64}/(data|balanced|quality)\.jpg",
+                          parsed.path):
+            if (len(self.headers.get_all("X-LunexPC-LiveView", [])) != 1
+                    or self.headers.get("X-LunexPC-LiveView") != "active"):
+                self._write(403, b"Live View requires explicit request", "text/plain")
+                return
+            fragment = parsed.path.split("/")
+            device = fragment[4]
+            profile = fragment[5][:-4]
+            viewer = getattr(self.server,"live_view",None)
+            if viewer is None:
+                self._write(503, b"Viewer unavailable", "text/plain")
+                return
+            try:
+                jpeg, etag, captured = viewer.frame(device, profile)
+                self._write(200, jpeg, "image/jpeg")
+            except LiveError:
+                self._write(503, b"Screen unavailable", "text/plain")
+            except (OSError,sqlite3.Error):
+                self._write(503, b"Viewer unavailable", "text/plain")
         elif parsed.path == "/api/screens":
             try:
                 store = self._screens()
@@ -344,6 +390,8 @@ def main():
         raise ValueError("panel authentication is required")
     server = ThreadingHTTPServer((args.bind, args.port), PanelHandler)
     server.panel_auth = auth
+    server.registry_path = GATEWAY_REGISTRY
+    server.live_view = LiveFrameService(GATEWAY_REGISTRY)
     server.screen_history = ScreenHistory(args.screens_dir)
     server.serve_forever()
 

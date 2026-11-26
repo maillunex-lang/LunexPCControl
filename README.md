@@ -20,6 +20,12 @@ read-only desktop Screenshot and ControlStatus.
 - Separate Screen Monitor at /monitor with encrypted history, fullscreen
   preview, live 3-second polling of AI screenshots, controls for retention
   and clearing, and an action timeline. Capture is disabled by default.
+- Authenticated device portal at /devices with outbound-tunnel online status,
+  and optimized owner-initiated JPEG Live View at /live (640/960/1280 px,
+  1 fps maximum). Capture stops when the owner closes the viewer.
+- Interactive Windows supervisor supports unlimited reconnection after a
+  change of Wi-Fi, router or ISP address, and an opt-in current-user login
+  task without privileged Windows services or inbound firewall ports.
 - Complete first-party source, Windows scripts, tests, installer,
   deployment templates and the unmodified MIT-licensed Windows-MCP
   upstream source are preserved in this repository.
@@ -68,6 +74,13 @@ is a planned release feature.
 The project also includes a bounded AES-256-GCM backup tool and immutable
 checksum-verified update staging. Automated restore, deployment activation
 with rollback, and a full one-click upgrade remain under development.
+
+## Private device portal and optimized Live View
+
+The device portal monitors reverse SSH connection status without requiring
+a static Windows IP. The Live View page captures compressed frames only while
+the owner explicitly watches, without recording continuous screen video.
+See docs/PORTAL-LIVE-VIEW.md for settings, security and limitations.
 
 ## Screenshot monitoring
 

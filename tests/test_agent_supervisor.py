@@ -15,7 +15,9 @@ class AgentSupervisorTests(unittest.TestCase):
                         "ConnectAsync('127.0.0.1',18789)", "probe -lt 45",
                         "PrivateMcpCredentialAvailable", "WINDOWS_MCP_AUTH_KEY",
                         "Test-McpAuthentication", "StatusCode -eq 401",
-                        "taskkill.exe /PID", "Join-Path $PSHOME 'powershell.exe'"):
+                        "taskkill.exe /PID", "Join-Path $PSHOME 'powershell.exe'",
+                        "MaxRetries = 0", "while ($MaxRetries -eq 0",
+                        "Get-RetryDelay", "DynamicClientIpSupported = $true"):
             self.assertIn(segment,TEXT)
     def test_no_unwanted_autostart_or_extra_commands(self):
         for forbidden in ('schtasks.exe','New-ScheduledTask',
