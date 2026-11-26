@@ -87,6 +87,6 @@ No embedded credentials; per-device authentication; least privilege; explicit ap
 - [x] Revocation, one-time authorization codes and CSRF cookie binding
 - [x] Separate read-only MCP bridge with legacy Alpha 0.1 compatibility
 - [x] Login, token, callback and malicious-redirect unit tests
-- [ ] Production OAuth service and HTTPS route deployment verification
+- [x] Production OAuth service and HTTPS route deployment verification
 - [ ] Update private ChatGPT plugin to version 0.1.1
 - [ ] Owner sign-in and genuine tool-call verification from ChatGPT

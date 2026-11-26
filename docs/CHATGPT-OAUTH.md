@@ -102,3 +102,18 @@ owner consent, CSRF, wrong-password lockout, PKCE S256, code replay,
 access and refresh expiry, token rotation and revocation, and MCP bridging.
 The final release still requires the owner to complete an actual browser
 login and verify a Windows ControlStatus tool call from inside ChatGPT.
+
+
+## Production verification (2026-11-26)
+
+- OAuth bridge runs under the existing unprivileged lunexpc-gateway user.
+- The service listens only on 127.0.0.1:18882 and keeps its OAuth
+  issuer DB and internal gateway credential in 0600 files.
+- Public HTTPS discovery returned valid issuer, resource and S256 metadata.
+- Public DCR registration returned 201 and the owner login page returned 200.
+- Malicious redirect URI registration and bogus token exchanges returned 400.
+- Unauthenticated MCP requests returned 401 with a resource-metadata challenge.
+- The legacy /lunexpc route remains 404; portal access still requires Basic.
+- The neighboring DevCore protected-resource OAuth metadata is unchanged.
+- The real owner login and a tool call from ChatGPT still require the owner
+  to complete the connection UI; no owner password was read for public tests.
