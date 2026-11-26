@@ -33,6 +33,7 @@ FILES = {
     "panel/monitor_html.py": APP_DIR / "panel/monitor_html.py",
     "panel/portal_html.py": APP_DIR / "panel/portal_html.py",
     "panel/live_view.py": APP_DIR / "panel/live_view.py",
+    "panel/mjpeg_stream.py": APP_DIR / "panel/mjpeg_stream.py",
     "panel/auth.py": APP_DIR / "panel/auth.py",
     "installer/backup.py": APP_DIR / "installer/backup.py",
     "installer/install.py": APP_DIR / "installer/install.py",

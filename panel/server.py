@@ -17,6 +17,7 @@ from panel.auth import PanelAuth
 from panel.monitor_html import monitor_page
 from panel.portal_html import devices_page, live_page
 from panel.live_view import LiveFrameService, LiveError, probe_devices
+from panel.mjpeg_stream import StreamGate, StreamBusy, stream_frames, content_type
 from server.screen_history import ScreenHistory
 import re
 
@@ -251,6 +252,9 @@ class PanelHandler(BaseHTTPRequestHandler):
                 self._write(200, result, "application/json; charset=utf-8")
             except (OSError,sqlite3.Error,ValueError):
                 self._write(503, b'{"error":"device status unavailable"}', "application/json")
+        elif re.fullmatch(r"/api/live/stream/[A-Za-z0-9_-]{1,64}/(data|balanced|quality)\.mjpg",
+                          parsed.path):
+            self._serve_mjpeg(parsed.path)
         elif re.fullmatch(r"/api/live/frame/[A-Za-z0-9_-]{1,64}/(data|balanced|quality)\.jpg",
                           parsed.path):
             if (len(self.headers.get_all("X-LunexPC-LiveView", [])) != 1
@@ -304,6 +308,52 @@ class PanelHandler(BaseHTTPRequestHandler):
                 self._write(503, b'{"error":"unavailable"}', "application/json")
         else:
             self._write(404, b"Not found", "text/plain")
+
+    def _serve_mjpeg(self, path):
+        # A streaming URL can be used as an img.src. Browser Basic auth is
+        # still mandatory; the special header only exists on the JPEG fallback.
+        viewer=getattr(self.server,"live_view",None)
+        gate=getattr(self.server,"stream_gate",None)
+        if viewer is None or gate is None:
+            self._write(503,b"Stream unavailable","text/plain")
+            return
+        parts=path.split("/")
+        device=parts[4]
+        profile=parts[5][:-5]
+        try:
+            gate.acquire()
+        except StreamBusy:
+            self._write(503,b"Too many viewers","text/plain")
+            return
+        try:
+            try:
+                # Check the registered device status before committing to an
+                # indefinite response, but never disclose the device key.
+                registered=any(d["id"]==device for d in probe_devices(self._registry()))
+                if not registered:
+                    self._write(404,b"Device not registered","text/plain")
+                    return
+            except (OSError,sqlite3.Error):
+                self._write(503,b"Connection unavailable","text/plain")
+                return
+            self.send_response(200)
+            self.send_header("Content-Type",content_type())
+            self.send_header("Cache-Control","private, no-store, max-age=0")
+            self.send_header("X-Content-Type-Options","nosniff")
+            self.send_header("Referrer-Policy","no-referrer")
+            self.send_header("X-Robots-Tag","noindex, nofollow")
+            self.send_header("X-Accel-Buffering","no")
+            self.send_header("Connection","close")
+            self.end_headers()
+            self.close_connection=True
+            for frame in stream_frames(viewer,device,profile):
+                try:
+                    self.wfile.write(frame)
+                    self.wfile.flush()
+                except (BrokenPipeError,ConnectionResetError,TimeoutError,OSError):
+                    break
+        finally:
+            gate.release()
 
     def do_POST(self):
         if not self._trusted_host(mutation=True):
@@ -401,6 +451,7 @@ def main():
     server.panel_auth = auth
     server.registry_path = GATEWAY_REGISTRY
     server.live_view = LiveFrameService(GATEWAY_REGISTRY)
+    server.stream_gate = StreamGate()
     server.screen_history = ScreenHistory(args.screens_dir)
     server.serve_forever()
 

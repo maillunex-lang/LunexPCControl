@@ -120,16 +120,19 @@ footer{color:#8197ad;font-size:12px;margin:20px 0}
 <h1>Live View</h1>
 <nav><a href="/portalmcp/">Обзор</a><a href="/portalmcp/devices">Устройства</a>
 <a aria-current="page" href="/portalmcp/live">Live View</a><a href="/portalmcp/monitor">История</a></nav>
-<p class="muted">Экономный просмотр экрана через исходящий туннель.
-Кадры JPEG запрашиваются только после нажатия «Начать». При остановке,
-закрытии вкладки и отключении устройства запросы прекращаются.
-Максимум один кадр в секунду.</p>
+<p class="muted">Онлайн-трансляция экрана через защищённый туннель.
+Видео передаётся единым MJPEG-потоком и запускается только по кнопке.
+Можно переключиться на прежний JPEG-режим. Максимум один кадр в секунду
+до внедрения аппаратного H.264-кодирования на Windows.</p>
 <section class="panel"><div class="toolbar">
 <label for="device">Компьютер</label><select id="device"></select>
 <label for="quality">Качество</label>
 <select id="quality"><option value="data">Экономный · 640p</option>
 <option value="balanced" selected>Баланс · 960p</option>
 <option value="quality">Чёткий · 1280p</option></select>
+<label for="mode">Режим</label>
+<select id="mode"><option value="stream" selected>Потоковое видео</option>
+<option value="jpeg">Резервный JPEG</option></select>
 <button id="start">Начать просмотр</button><button id="stop" disabled>Остановить</button>
 <button id="fullscreen">На весь экран</button>
 <span class="pill" id="state" role="status">Остановлено</span>
@@ -137,16 +140,18 @@ footer{color:#8197ad;font-size:12px;margin:20px 0}
 <div class="canvas" id="canvas"><div id="placeholder">Просмотр выключен.
 Выберите компьютер и нажмите «Начать просмотр».</div>
 <img id="frame" alt="Текущий кадр компьютера Windows"></div>
-<div class="toolbar"><span class="muted" id="metrics">Передача данных: 0 КБ · кадров: 0</span>
+<div class="toolbar"><span class="muted" id="metrics">Нет активной трансляции</span>
 <span class="muted" id="updated"></span></div></section>
-<p class="muted">Это оптимизированные отдельные кадры, а не видеозвонок или
-постоянное наблюдение за Windows. Если пользователь работает с закрытым
-экраном или Windows-MCP запрашивает подтверждение, отображение может остановиться.</p>
+<p class="muted">Режим потока непрерывно передаёт кадры пока открыт просмотр,
+но пока это MJPEG, не H.264/WebRTC. Переключение на H.264 запланировано после
+установки и проверки аппаратного кодировщика Windows. В случае ошибки соединения
+можно выбрать резервный JPEG.</p>
 <footer>Логин обязателен. Скриншоты в режиме Live View не сохраняются на диск и не
 попадают в историю, если ИИ отдельно не запросил Screenshot через MCP.</footer>
 </div><script>
 const el=id=>document.getElementById(id);
 let active=false, frames=0, transfer=0, controller=null, photoUrl=null;
+let streamWatchdog=null, streamRestarts=0, streamNonce=0, mode='stream';
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 function setStatus(message){el('state').textContent=message}
 async function loadDevices(){
@@ -162,8 +167,17 @@ async function loadDevices(){
   if(!data.devices.length)setStatus('Нет зарегистрированных устройств');
  }catch(e){setStatus('Ошибка получения устройств')}
 }
+function acceptJpeg(blob){
+ return new Promise((resolve,reject)=>{
+  const url=URL.createObjectURL(blob);
+  const image=new Image();
+  image.onload=()=>{resolve(url);};
+  image.onerror=()=>{URL.revokeObjectURL(url);reject(new Error('Не удалось декодировать кадр'))};
+  image.src=url;
+ });
+}
 async function poll(){
- while(active){
+ while(active && mode==='jpeg'){
   try{
    const device=el('device').value, quality=el('quality').value;
    if(!device){setStatus('Устройство не выбрано');break}
@@ -177,15 +191,16 @@ async function poll(){
    if(!r.ok)throw Error('HTTP '+r.status);
    const blob=await r.blob();
    if(!active)break;
-   const url=URL.createObjectURL(blob);
+   const url=await acceptJpeg(blob);
+   if(!active){URL.revokeObjectURL(url);break}
    const prev=photoUrl;photoUrl=url;
    el('frame').src=url;el('frame').style.display='block';
    el('placeholder').style.display='none';
    if(prev)URL.revokeObjectURL(prev);
    frames++;transfer+=blob.size;
-   el('metrics').textContent='Получено '+frames+' кадр. · '+Math.round(transfer/1024)+' КБ';
+   el('metrics').textContent='Отображено '+frames+' кадров · '+Math.round(transfer/1024)+' КБ';
    el('updated').textContent=new Date().toLocaleTimeString('ru-RU');
-   setStatus('В сети · просмотр включён');
+   setStatus('JPEG · просмотр включён');
   }catch(e){
    if(active){setStatus('Ожидание Windows: '+e.message);await pause(2200)}
   }
@@ -193,14 +208,68 @@ async function poll(){
   if(active)await pause(1050);
  }
 }
+function startStream(){
+ const device=el('device').value, quality=el('quality').value;
+ if(!device){setStatus('Устройство не выбрано');stop();return}
+ const image=el('frame');
+ image.style.display='block';
+ el('placeholder').style.display='none';
+ streamRestarts=0;
+ function connect(){
+  if(!active || mode!=='stream')return;
+  // Force browser to close previous stream before opening a new one.
+  image.removeAttribute('src');
+  streamNonce++;
+  const url='/portalmcp/api/live/stream/'+encodeURIComponent(device)+'/'+quality+'.mjpg';
+  image.src=url+'?session='+streamNonce;
+  setStatus('Подключение видеопотока...');
+ }
+ image.onload=()=>{
+  if(!active || mode!=='stream')return;
+  frames++;
+  el('metrics').textContent='Поток MJPEG · кадры отображаются · до 1 FPS';
+  el('updated').textContent=new Date().toLocaleTimeString('ru-RU');
+  setStatus('Потоковое видео включено');
+ };
+ image.onerror=()=>{
+  if(active && mode==='stream'){
+   setStatus('Ошибка видеопотока. Переключись на резервный JPEG');
+   stop();
+  }
+ };
+ connect();
+ // Server stream has a finite lifetime; restart it occasionally while
+ // the user is still watching. Switching away stops this watchdog.
+ streamWatchdog=setInterval(()=>{
+  if(active && mode==='stream'){
+   streamRestarts++;
+   if(streamRestarts<100)connect();
+  }
+ },170000);
+}
 el('start').addEventListener('click',()=>{
  if(active)return;active=true;frames=0;transfer=0;
- el('start').disabled=true;el('stop').disabled=false;el('device').disabled=true;
- setStatus('Подключение...');poll().finally(()=>{if(active)stop()});
+ mode=el('mode').value;
+ el('start').disabled=true;el('stop').disabled=false;
+ el('device').disabled=true;el('quality').disabled=true;el('mode').disabled=true;
+ setStatus('Подключение...');
+ if(mode==='stream')startStream();
+ else poll().finally(()=>{if(active && mode==='jpeg')stop()});
 });
 function stop(){
- active=false;if(controller)controller.abort();
- el('start').disabled=false;el('stop').disabled=true;el('device').disabled=false;
+ active=false;
+ if(controller)controller.abort();
+ if(streamWatchdog)clearInterval(streamWatchdog);
+ streamWatchdog=null;
+ const img=el('frame');img.onerror=null;img.onload=null;
+ // Immediate abort of streaming <img> transport; no screenshot request
+ // remains active when the tab is hidden or the user presses Stop.
+ img.removeAttribute('src');img.style.display='none';
+ el('placeholder').style.display='block';
+ if(photoUrl)URL.revokeObjectURL(photoUrl);
+ photoUrl=null;
+ el('start').disabled=false;el('stop').disabled=true;
+ el('device').disabled=false;el('quality').disabled=false;el('mode').disabled=false;
  setStatus('Остановлено');
 }
 el('stop').addEventListener('click',stop);
