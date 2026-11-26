@@ -2,6 +2,8 @@ import http.client
 import os
 import time
 import tempfile
+import sqlite3
+from pathlib import Path
 import threading
 import unittest
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -114,8 +116,44 @@ class GatewayTests(unittest.TestCase):
         self.assertEqual(resp.read(), b"event: ping\ndata: second\n\n")
         conn.close()
 
+    def test_duplicate_auth_is_rejected(self):
+        conn = http.client.HTTPConnection("127.0.0.1", self.gateway.server_port, timeout=3)
+        conn.putrequest("GET", "/devices/pc/mcp")
+        conn.putheader("Authorization", "Bearer " + self.token)
+        conn.putheader("Authorization", "Bearer " + self.token)
+        conn.endheaders()
+        res = conn.getresponse()
+        self.assertEqual(res.status, 401)
+        res.read()
+        conn.close()
+
+    def test_duplicate_content_length_is_rejected(self):
+        conn = http.client.HTTPConnection("127.0.0.1", self.gateway.server_port, timeout=3)
+        conn.putrequest("POST", "/devices/pc/mcp")
+        conn.putheader("Authorization", "Bearer " + self.token)
+        conn.putheader("Content-Length", "1")
+        conn.putheader("Content-Length", "1")
+        conn.endheaders()
+        res = conn.getresponse()
+        self.assertEqual(res.status, 400)
+        res.read()
+        conn.close()
+
+    def test_registry_mode_and_symlink(self):
+        path = Path(self.tmp.name) / "protected.sqlite"
+        reg = GatewayRegistry(str(path))
+        self.assertEqual(path.stat().st_mode & 0o777, 0o600)
+        link = Path(self.tmp.name) / "alias.sqlite"
+        link.symlink_to(path)
+        with self.assertRaises(ValueError):
+            GatewayRegistry(str(link))
+        path.chmod(0o644)
+        with self.assertRaises(PermissionError):
+            GatewayRegistry(str(path))
+
     def test_reject_bad_auth(self):
         self.assertEqual(self.call("GET", token="invalid")[0], 403)
+        self.assertEqual(self.call("GET", token="x"*300)[0], 403)
         self.db.revoke_client(self.token)
         self.assertEqual(self.call("GET")[0], 403)
 

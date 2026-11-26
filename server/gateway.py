@@ -6,12 +6,12 @@ server stays independently authenticated through the reverse SSH tunnel.
 from __future__ import annotations
 
 import hashlib
-import hmac
 import http.client
-import socket
 import re
 import secrets
 import sqlite3
+import os
+import stat
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlsplit
 
@@ -33,7 +33,27 @@ class GatewayRegistry:
 
     def __init__(self, path):
         self.path = path
-        with sqlite3.connect(path) as db:
+        if path != ":memory:":
+            if os.path.islink(path):
+                raise ValueError("registry symlinks are forbidden")
+            if os.path.exists(path) and not stat.S_ISREG(os.stat(path).st_mode):
+                raise ValueError("registry must be a regular file")
+            # Temporarily tighten process permissions for a newly created SQLite file.
+            old_umask = os.umask(0o077)
+        else:
+            old_umask = None
+        try:
+            self._initialize()
+        finally:
+            if old_umask is not None:
+                os.umask(old_umask)
+        if path != ":memory:":
+            mode = stat.S_IMODE(os.stat(path).st_mode)
+            if mode & 0o077:
+                raise PermissionError("registry must be private (0600)")
+
+    def _initialize(self):
+        with sqlite3.connect(self.path) as db:
             db.execute("""
                 CREATE TABLE IF NOT EXISTS clients (
                     device TEXT NOT NULL,
@@ -88,7 +108,7 @@ class GatewayRegistry:
             db.execute("DELETE FROM routes WHERE device=?", (device,))
 
     def authenticate(self, device, token):
-        if not isinstance(token, str):
+        if not isinstance(token, str) or len(token) > 256:
             return None
         digest = self.digest(token)
         with sqlite3.connect(self.path) as db:
@@ -133,6 +153,17 @@ def make_handler(registry, upstream_factory=http.client.HTTPConnection):
             if not match or split.fragment or split.username or split.password:
                 self._respond(404)
                 return
+            if len(self.headers.get_all("Authorization", [])) != 1:
+                self._respond(401)
+                return
+            if len(self.headers.get_all("Content-Length", [])) > 1 or len(self.headers.get_all("Transfer-Encoding", [])) > 1:
+                self._respond(400)
+                self.close_connection = True
+                return
+            if self.headers.get("Connection", "").lower() == "upgrade" or self.headers.get("Upgrade"):
+                self._respond(400)
+                self.close_connection = True
+                return
             auth = self.headers.get("Authorization", "")
             if not auth.startswith("Bearer ") or not auth[7:] or "," in auth:
                 self._respond(401)
@@ -143,6 +174,7 @@ def make_handler(registry, upstream_factory=http.client.HTTPConnection):
                 return
             if "Transfer-Encoding" in self.headers:
                 self._respond(400)
+                self.close_connection = True
                 return
             raw_length = self.headers.get("Content-Length")
             if self.command == "POST":
@@ -152,13 +184,20 @@ def make_handler(registry, upstream_factory=http.client.HTTPConnection):
                 length = int(raw_length)
                 if length > MAX_BODY:
                     self._respond(413)
+                    self.close_connection = True
                     return
                 body = self.rfile.read(length)
+                if len(body) != length:
+                    self.close_connection = True
+                    return
             else:
                 if raw_length not in (None, "0"):
                     self._respond(400)
                     return
                 body = None
+            if len(split.query) > 2048 or any(c in split.query for c in "\r\n"):
+                self._respond(400)
+                return
             request_headers = {
                 key: value for key, value in self.headers.items()
                 if key.lower() in PASSTHROUGH_HEADERS
