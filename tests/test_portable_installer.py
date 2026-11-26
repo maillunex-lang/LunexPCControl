@@ -15,6 +15,9 @@ class PortableInstallerTests(unittest.TestCase):
         self.assertIn("deploy/lunexpc-gateway.service", installer.FILES)
         self.assertIn("deploy/lunexpc-panel.service", installer.FILES)
         self.assertIn("panel/server.py", installer.FILES)
+        self.assertIn("panel/auth.py", installer.FILES)
+        self.assertIn("installer/backup.py", installer.FILES)
+        self.assertIn("installer/upgrade.py", installer.FILES)
         self.assertIn("server/sealed_token.py", installer.FILES)
 
     def test_default_is_readonly(self):

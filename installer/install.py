@@ -10,6 +10,7 @@ import argparse
 import os
 import pathlib
 import re
+import secrets
 import subprocess
 import sys
 
@@ -28,6 +29,10 @@ FILES = {
     "server/tunnel_config.py": APP_DIR / "server/tunnel_config.py",
     "deploy/verify-gateway.sh": APP_DIR / "deploy/verify-gateway.sh",
     "panel/server.py": APP_DIR / "panel/server.py",
+    "panel/auth.py": APP_DIR / "panel/auth.py",
+    "installer/backup.py": APP_DIR / "installer/backup.py",
+    "installer/install.py": APP_DIR / "installer/install.py",
+    "installer/upgrade.py": APP_DIR / "installer/upgrade.py",
     "deploy/lunexpc-panel.service": pathlib.Path("/etc/systemd/system/lunexpc-panel.service"),
     "deploy/lunexpc-gateway.service": pathlib.Path("/etc/systemd/system/lunexpc-gateway.service"),
     "deploy/lunexpc-gateway.logrotate": pathlib.Path("/etc/logrotate.d/lunexpc-gateway"),
@@ -112,10 +117,22 @@ def apply_install():
             'GatewayRegistry("/var/lib/lunexpc-gateway/registry.sqlite")')
     command("runuser", "-u", ACCOUNT, "--", "sh", "-c",
             f'cd {APP_DIR} && /usr/bin/python3 -c \'{init}\'')
+    panel_key_path = STATE_DIR / "panel-auth.key"
+    if panel_key_path.exists() or panel_key_path.is_symlink():
+        raise FileExistsError("panel credential file already exists")
+    fd = os.open(panel_key_path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+    try:
+        os.write(fd, secrets.token_urlsafe(48).encode("ascii") + b"\n")
+        os.fchown(fd, __import__("pwd").getpwnam(ACCOUNT).pw_uid,
+                  __import__("grp").getgrnam(ACCOUNT).gr_gid)
+    finally:
+        os.close(fd)
     command("systemctl", "daemon-reload")
     command("systemd-analyze", "verify", f"/etc/systemd/system/{SERVICE_NAME}",
             "/etc/systemd/system/lunexpc-panel.service")
     print("Installed gateway and dashboard but intentionally not started or enabled.")
+    print("Panel password was generated in private storage (never printed).")
+    print("Retrieve it using your own authenticated VPS shell, not chat logs.")
     print("Next: verify settings and start manually with systemctl.")
 
 

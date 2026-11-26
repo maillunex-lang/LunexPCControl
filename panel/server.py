@@ -13,6 +13,7 @@ import sqlite3
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import urlsplit
+from panel.auth import PanelAuth
 
 GATEWAY_REGISTRY = Path(os.environ.get(
     "LUNEXPC_REGISTRY", "/var/lib/lunexpc-gateway/registry.sqlite"))
@@ -177,6 +178,15 @@ class PanelHandler(BaseHTTPRequestHandler):
         if not self._trusted_host():
             self._write(403, b"Forbidden", "text/plain")
             return
+        # The entire dashboard is disabled until a credential is configured
+        # in the server process. Never fall back to anonymous access.
+        auth = getattr(self.server, "panel_auth", None)
+        if auth is None:
+            self._write(503, b'Panel authentication not configured', "text/plain")
+            return
+        if not auth.verify(self.headers.get("Authorization")):
+            self._write(401, b'Access denied', "text/plain")
+            return
         parsed = urlsplit(self.path)
         if parsed.query or parsed.fragment:
             self._write(404, b"Not found", "text/plain")
@@ -207,6 +217,8 @@ class PanelHandler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.send_header("Cache-Control", "no-store")
+        if status == 401:
+            self.send_header("WWW-Authenticate", 'Basic realm="LunexPCControl Panel", charset="UTF-8"')
         self.send_header("X-Content-Type-Options", "nosniff")
         self.send_header("Content-Security-Policy",
                          "default-src 'self'; script-src 'unsafe-inline'; "
@@ -226,10 +238,15 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--port", type=int, default=18881)
     parser.add_argument("--bind", default="127.0.0.1")
+    parser.add_argument("--auth-file", required=True)
     args = parser.parse_args()
     if args.bind != "127.0.0.1":
         raise ValueError("panel must bind only to localhost")
+    auth = PanelAuth(args.auth_file)
+    if not auth.configured:
+        raise ValueError("panel authentication is required")
     server = ThreadingHTTPServer((args.bind, args.port), PanelHandler)
+    server.panel_auth = auth
     server.serve_forever()
 
 

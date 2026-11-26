@@ -14,8 +14,9 @@ read-only desktop Screenshot and ControlStatus.
 - Gateway runs under a dedicated unprivileged systemd account,
   with a private SQLite registry, token validation, tool allowlisting,
   rate limiting, audit logging and log rotation.
-- A private, responsive, **read-only HTML dashboard** shows sanitized
-  device/client counts and recent audit events on 127.0.0.1:18881.
+- A private, responsive, **read-only HTML dashboard** on
+  127.0.0.1:18881, with Basic authentication from a private local
+  password file; it shows sanitized counts and audit events.
 - Complete first-party source, Windows scripts, tests, installer,
   deployment templates and the unmodified MIT-licensed Windows-MCP
   upstream source are preserved in this repository.
@@ -36,6 +37,12 @@ deployment is overwritten. The installer does not touch nginx,
 firewall, sshd or other applications and does not automatically start,
 enable or publicly expose either service.
 
+A new installation generates the panel password into a private file
+without printing it to logs or committing it to GitHub. Read it only in
+your own private VPS shell. Use the browser login username admin through
+an authenticated SSH or private Termalin tunnel, never an unencrypted
+public connection.
+
 After review, you may start the gateway and optional dashboard manually:
 
     sudo systemctl start lunexpc-gateway.service
@@ -54,6 +61,10 @@ along with its original LICENSE.md and a SHA-256 file manifest.
 The Windows bootstrap uses the bundled copy when run from a full checkout.
 Package dependencies still require pip downloads; offline wheel caching
 is a planned release feature.
+
+The project also includes a bounded AES-256-GCM backup tool and immutable
+checksum-verified update staging. Automated restore, deployment activation
+with rollback, and a full one-click upgrade remain under development.
 
 ## Roadmap
 

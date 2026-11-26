@@ -1,5 +1,6 @@
 from pathlib import Path
 import json
+import base64
 import os
 import sqlite3
 import tempfile
@@ -8,6 +9,7 @@ import unittest
 from http.client import HTTPConnection
 from http.server import ThreadingHTTPServer
 from panel.server import PanelHandler, dashboard_data, html_page
+from panel.auth import PanelAuth
 
 class DashboardTests(unittest.TestCase):
     def test_no_secret_data(self):
@@ -33,15 +35,30 @@ class DashboardTests(unittest.TestCase):
     def test_panel_is_local_and_readonly(self):
         service=(Path(__file__).resolve().parents[1]/"deploy/lunexpc-panel.service").read_text()
         self.assertIn("--bind 127.0.0.1 --port 18881",service)
+        self.assertIn("--auth-file /var/lib/lunexpc-gateway/panel-auth.key",service)
         page=html_page().decode()
         self.assertIn("Центр управления",page)
         self.assertNotIn("eval(",page)
     def test_http_endpoints(self):
         server=ThreadingHTTPServer(("127.0.0.1",0),PanelHandler)
+        with tempfile.TemporaryDirectory() as d:
+            key=Path(d)/'auth.key'
+            key.write_text('a-long-private-demo-token-not-for-production')
+            key.chmod(0o600)
+            server.panel_auth=PanelAuth(key)
+            self._exercise_http(server)
+
+    def _exercise_http(self,server):
         threading.Thread(target=server.serve_forever,daemon=True).start()
         try:
             conn=HTTPConnection("127.0.0.1",server.server_port,timeout=5)
             conn.request("GET","/")
+            result=conn.getresponse()
+            self.assertEqual(result.status,401)
+            self.assertIn("Basic", result.getheader("WWW-Authenticate",""))
+            result.read()
+            token=base64.b64encode(b'admin:a-long-private-demo-token-not-for-production').decode()
+            conn.request("GET","/",headers={"Authorization":"Basic "+token})
             result=conn.getresponse()
             self.assertEqual(result.status,200)
             self.assertEqual(result.getheader("Cache-Control"),"no-store")
@@ -50,7 +67,7 @@ class DashboardTests(unittest.TestCase):
             result=conn.getresponse()
             self.assertEqual(result.status,405)
             result.read()
-            conn.request("GET","/random")
+            conn.request("GET","/random",headers={"Authorization":"Basic "+token})
             result=conn.getresponse()
             self.assertEqual(result.status,404)
             result.read()

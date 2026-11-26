@@ -95,3 +95,49 @@ finished one-click production appliance.
 
 The CI workflow checks Python tests, shell syntax and accidental tracking
 of secret file types on each push to main.
+
+
+## Panel authentication (developer milestone)
+
+The read-only panel now requires HTTP Basic authentication to access the
+page and /api/status. Username is **admin**. A separate random password is
+generated during a *new* installation at
+/var/lib/lunexpc-gateway/panel-auth.key (0600, owned by the dedicated service
+user). This password is never committed or printed by the installer.
+
+Open the panel through an authenticated encrypted transport such as a
+private Termalin Internal Site or an SSH local-forward. A direct public
+plain-HTTP proxy is forbidden: Basic credentials would be exposed.
+The credential must be retrieved by the VPS owner in their own private
+shell and must not be copied into ChatGPT messages or automation logs.
+
+The panel accepts no remote commands and cannot enroll devices, change
+credentials or start a tunnel. It is not a replacement for independently
+enforced Windows user consent or the main MCP gateway policy.
+
+## Portable encrypted backup
+
+The repository provides installer/backup.py with actions:
+- keygen --output PATH (creates a 0600 32-byte random AES encryption key)
+- create --registry DB --panel-key PANEL_KEY --key-file KEY --output FILE
+- verify --backup FILE --key-file KEY
+
+Encrypted backups use AES-256-GCM, contain a consistent SQLite in-memory
+snapshot plus the optional panel credential, and never write a plaintext
+temporary database. The archive has strict 16 MiB size bounds. The backup
+key MUST be exported separately from the VPS and stored securely, as a
+backup without its key cannot be restored. Never upload backup files or
+keys to a public GitHub repository. The cryptography Python package is
+required to run the backup commands, but not to operate the local panel
+or gateway. Automated restore and separate Windows/private SSH identity
+migration remain to be built.
+
+## Immutable update preparation
+
+installer/upgrade.py validates that a checkout matches the supplied full
+commit SHA and has no uncommitted edits, then can stage a verified, private,
+checksummed source update under /opt/lunexpc-gateway-updates. Staging does
+NOT stop services, activate a release, modify the registry or update
+systemd units. Activation must be protected with a validated encrypted
+backup, deployment health checks and an automatic rollback; those are
+still planned. Do not treat staging as an already deployed update.
