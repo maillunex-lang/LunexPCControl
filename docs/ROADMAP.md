@@ -70,7 +70,9 @@ No embedded credentials; per-device authentication; least privilege; explicit ap
 - [x] Package source: plugin.json, mcp.json and scoped workflow skill
 - [x] Dedicated read-only HTTPS gateway route and revocable Bearer-key script
 - [x] Static fail-closed tests for endpoint, keys, and plugin metadata
-- [ ] Deploy route on production Nginx and verify real remote MCP handshake
-- [ ] Install private plugin and connect via owner-only credential UI
+- [x] Deploy exact POST-only Nginx route and verify unauthenticated requests
+      are rejected; private MCP initialize returned HTTP 200
+- [x] Create a private ChatGPT plugin package with the verified MCP URL
+- [ ] Owner must connect the private plugin using its dedicated bearer key
 - [ ] Verify screenshot and status from ChatGPT itself
 - [ ] Expand to device listing, monitor metrics and explicit input control

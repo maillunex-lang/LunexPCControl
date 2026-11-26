@@ -63,6 +63,16 @@ The public URL alone grants no access without the dedicated Bearer key.
 The HTML portal uses a separate Basic credential and does not share
 it with the ChatGPT plugin.
 
+## Deployment verification (2026-11-26)
+
+The alpha plugin package was saved to the owner's account privately and its
+manifest and MCP URL were retrieved and verified. GitHub Actions passed all
+Python and Go tests. The production Nginx route is live under HTTPS;
+anonymous POST returns HTTP 401, invalid Bearer returns HTTP 403 and GET
+returns HTTP 403. The private gateway passed a real MCP initialize handshake.
+The owner-side plugin key entry and tool calls from ChatGPT remain
+unverified until the owner explicitly authorizes the connection.
+
 ## Installation in ChatGPT
 
 Install the private plugin through the Plugin Creator link or an
