@@ -2,7 +2,7 @@
 
 - [ ] PC-01 Audit upstream Windows-MCP, license, transport and screenshot support.
 - [ ] PC-02 Build authenticated gateway and device enrollment.
-- [ ] PC-03 Integrate Windows desktop agent and test interactive session behavior.
+- [ ] PC-03 Integrate Windows desktop agent and test interactive session behavior (local interactive Windows MCP screenshot validated on 2026-11-26; gateway/tunnel end-to-end not yet tested).
 - [ ] PC-04 Add optional protected RDP access.
 - [ ] PC-05 Add PowerShell, WSL2 and development workflows.
 - [ ] PC-06 Add durable jobs, cancellation and audit logging.

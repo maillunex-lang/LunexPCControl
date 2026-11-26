@@ -9,6 +9,8 @@ class LocalCheckTests(unittest.TestCase):
  def test_one_time_secret_not_logged(self):
   self.assertIn('WINDOWS_MCP_AUTH_KEY',SRC)
   self.assertNotIn('Write-Output $secret',SRC)
+  self.assertIn('RandomNumberGenerator',SRC)
+  self.assertNotIn('Get-Random',SRC)
  def test_session_guard_and_cleanup(self):
   self.assertIn('$sessionId -le 0',SRC)
   self.assertIn('finally {',SRC)

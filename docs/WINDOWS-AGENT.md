@@ -105,6 +105,26 @@ in that user's LocalAppData. No service, firewall rule, scheduled task or
 remote connection is created. Starting the agent requires separate consent,
 a securely provided bearer token and an interactive desktop.
 
-During Termalin RDP validation the Windows Run dialog displayed a pre-existing
-unrelated error and subsequently mangled command input; the GUI check did not
-complete. Never treat this as evidence that the agent works under `lunexrdp`.
+During Termalin RDP validation, the initial Windows Run dialog mangled Latin
+input because the RDP keyboard layout was Russian. Changing the layout to ENG
+and running the prepared read-only preflight from Explorer resolved it.
+
+## Verified live interactive screenshot (2026-11-26)
+
+The user profile `lunexrdp` and session 3 were confirmed through the
+interactive read-only preflight, and Python 3.14.10 plus Windows-MCP 0.9.0
+were successfully installed **for that account**, separately from `maill`.
+The locally bound agent at 127.0.0.1:18789 used an ephemeral bearer key and
+exposed only the upstream tools `Screenshot` and mandatory `ControlStatus`.
+The original upstream control-consent interface appeared during the test.
+
+After the control-consent flow, the real FastMCP client completed an MCP
+handshake, enumerated precisely those two tools and called Screenshot:
+`LOCAL-MCP-SCREENSHOT-CHECK=PASS`, one valid PNG of **559,295 bytes**. Neither
+the image nor the token was persisted or printed by the test. The test runner
+stopped the temporary agent and restored environment variables.
+
+An independent Termalin check after the run confirmed no listener on port
+18789 and no lingering `windows-mcp` process. This is a **local test only**:
+no reverse SSH tunnel, production HTTPS gateway, public URL, unattended
+startup, or mobile ChatGPT-to-Windows screenshot path was tested.

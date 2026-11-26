@@ -19,7 +19,12 @@ if(Get-NetTCPConnection -LocalPort $AgentPort -State Listen -ErrorAction Silentl
 }
 $previousKey=[Environment]::GetEnvironmentVariable('WINDOWS_MCP_AUTH_KEY','Process')
 $previousTelemetry=[Environment]::GetEnvironmentVariable('ANONYMIZED_TELEMETRY','Process')
-$secret=[Convert]::ToBase64String((1..48 | ForEach-Object { Get-Random -Minimum 0 -Maximum 256 } | ForEach-Object {[byte]$_}))
+# Use OS cryptographic RNG for temporary bearer material.
+$bytes=New-Object byte[] 48
+$rng=[Security.Cryptography.RandomNumberGenerator]::Create()
+try {$rng.GetBytes($bytes)} finally {$rng.Dispose()}
+$secret=[Convert]::ToBase64String($bytes)
+[Array]::Clear($bytes,0,$bytes.Length)
 $env:WINDOWS_MCP_AUTH_KEY=$secret
 $env:ANONYMIZED_TELEMETRY='false'
 $proc=$null
