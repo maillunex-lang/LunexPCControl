@@ -42,6 +42,10 @@ class SmokeScreenshotTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 mod.summarize_screenshot(types.SimpleNamespace(content=content))
 
+    def test_dedicated_gateway_client_token(self):
+        source = PATH.read_text(encoding="utf-8")
+        self.assertIn("LUNEXPC_CLIENT_TOKEN", source)
+
     def test_mcp_error(self):
         with self.assertRaises(ValueError):
             mod.summarize_screenshot(types.SimpleNamespace(isError=True, content=[]))

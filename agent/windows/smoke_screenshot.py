@@ -50,9 +50,9 @@ async def smoke(endpoint: str) -> None:
     # Import only during live execution; pure validators work without dependencies.
     from fastmcp import Client
 
-    token = os.getenv("WINDOWS_MCP_AUTH_KEY", "")
+    token = os.getenv("LUNEXPC_CLIENT_TOKEN") or os.getenv("WINDOWS_MCP_AUTH_KEY", "")
     if len(token) < 24:
-        raise RuntimeError("WINDOWS_MCP_AUTH_KEY is missing or too short")
+        raise RuntimeError("MCP client authentication token is missing or too short")
     print("MCP stage: connect", flush=True)
     async with Client(endpoint, auth=token, timeout=30) as client:
         print("MCP stage: list_tools", flush=True)
