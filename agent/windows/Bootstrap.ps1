@@ -30,8 +30,14 @@ function Find-Python314 {
     return $null
 }
 function Require-InteractiveDesktop {
-    if (-not [Environment]::UserInteractive) {
-        throw 'Agent must be started in an interactive user session.'
+    $sessionId = [Diagnostics.Process]::GetCurrentProcess().SessionId
+    if (-not [Environment]::UserInteractive -or $sessionId -le 0) {
+        throw 'Agent must be started from an interactive Windows desktop session, not Session 0.'
+    }
+    $shell = @(Get-Process explorer -ErrorAction SilentlyContinue |
+        Where-Object { $_.SessionId -eq $sessionId })
+    if ($shell.Count -eq 0) {
+        throw 'No interactive Explorer shell found in this session. Desktop capture is unsafe.'
     }
 }
 function Get-State {
@@ -97,6 +103,7 @@ if ($Start) {
     }
     $env:ANONYMIZED_TELEMETRY = 'false'
     $agent = Join-Path $venvDir "Scripts\windows-mcp.exe"
-    & $agent serve --transport streamable-http --host 127.0.0.1 --port $AgentPort
+    # Initial integration is screenshot-only. Do not expose shell, input or registry tools.
+    & $agent serve --transport streamable-http --host 127.0.0.1 --port $AgentPort --tools Screenshot --control-policy strict
     if ($LASTEXITCODE -ne 0) { throw 'Windows-MCP exited with a failure' }
 }

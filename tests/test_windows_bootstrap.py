@@ -26,6 +26,13 @@ class BootstrapTests(unittest.TestCase):
     def test_install_headless_but_start_interactive(self):
         self.assertIn("if ($Start) { Require-InteractiveDesktop }", self.content)
 
+    def test_screenshot_only_and_strict_control(self):
+        self.assertIn('--tools Screenshot --control-policy strict', self.content)
+
+    def test_interactive_session_id_guard(self):
+        self.assertIn('$sessionId -le 0', self.content)
+        self.assertIn('$_.SessionId -eq $sessionId', self.content)
+
     def test_no_scheduled_task(self):
         self.assertNotIn("schtasks", self.content.lower())
         self.assertNotIn("New-NetFirewallRule", self.content)

@@ -38,3 +38,17 @@ The following checks were completed via Termalin on the user's Windows PC:
 
 A local user session is necessary for desktop capture and interaction. The
 noninteractive Termalin shell is appropriate for installing dependencies only.
+
+## Session identity check (PC-03)
+
+Before attempting live screenshots, run
+`agent/windows/SessionPreflight.ps1` under the **same Windows account and
+session** that owns the visible desktop. It is read-only and reports the account,
+Windows session ID, whether Explorer exists in that session, whether the
+agent is installed under that user's `LocalAppData`, and whether the local
+port is already in use. Do not copy an agent installation between Windows
+profiles or assume an SSH/Termalin shell can capture the RDP user's screen.
+
+The default `Bootstrap.ps1 -Start` now exposes only the `Screenshot` MCP tool,
+with strict desktop control policy. Additional input, PowerShell and filesystem
+tools will require a separate policy and explicit consent. No autostart.
