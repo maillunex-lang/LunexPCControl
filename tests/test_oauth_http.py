@@ -43,14 +43,72 @@ class FakeResponse:
         return b'{"jsonrpc":"2.0","id":2,"result":{"tools":[]}}'
 
 
+class StatefulResponse:
+    def __init__(self, status, body, content_type, session_id=None):
+        self.status=status
+        self.body=body
+        self.content_type=content_type
+        self.session_id=session_id
+    def getheader(self, name, default=None):
+        if name.lower()=="content-type":
+            return self.content_type
+        if name.lower()=="mcp-session-id":
+            return self.session_id or default
+        return default
+    def read(self, n=-1):
+        data=self.body[:n] if n>=0 else self.body
+        self.body=self.body[len(data):]
+        return data
+    def read1(self, n):
+        return self.read(n)
+
+
 class FakeConnection:
     received=[]
+    mode=None
+    session_id="test-session-uuid-1234"
     def __init__(self,host,port,timeout=None):
         assert host=="127.0.0.1" and port==18880
+        self.req=None
     def request(self,method,target,body=None,headers=None):
         self.__class__.received.append((method,target,body,headers))
+        self.req=(body,headers)
     def getresponse(self):
-        return FakeResponse()
+        if self.__class__.mode is None:
+            return FakeResponse()
+        raw,headers=self.req
+        data=json.loads(raw)
+        method=data["method"]
+        if method=="initialize":
+            payload={"jsonrpc":"2.0","id":data["id"],"result":{
+                "protocolVersion":"2025-06-18","capabilities":{"tools":{}},
+                "serverInfo":{"name":"Fake Windows MCP","version":"1.0"}}}
+            status=200
+            session=self.session_id
+        elif headers.get("Mcp-Session-Id")!=self.session_id:
+            payload={"jsonrpc":"2.0","id":data.get("id"),
+                     "error":{"code":-32000,"message":"Session not found"}}
+            status=400
+            session=None
+        elif method=="notifications/initialized":
+            payload=None
+            status=202
+            session=None
+        else:
+            payload={"jsonrpc":"2.0","id":data["id"],"result":{
+                "content":[{"type":"text","text":"read-only status OK"}]}}
+            status=200
+            session=None
+        if payload is None:
+            body=b""
+        else:
+            body=json.dumps(payload).encode()
+        sse=self.__class__.mode=="sse" and status==200
+        if sse:
+            body=b"event: message\ndata: "+body+b"\n\n"
+        return StatefulResponse(status,body,
+                                "text/event-stream" if sse else "application/json",
+                                session)
     def close(self):
         pass
 
@@ -68,6 +126,7 @@ class OAuthHTTPTests(unittest.TestCase):
         self.gateway.configure_route("lunex",23789,"test-internal-upstream-key-length-32!")
         self.internal=self.gateway.create_client("lunex")
         FakeConnection.received=[]
+        FakeConnection.mode=None
         self.server=ThreadingHTTPServer(("127.0.0.1",0),
             make_handler(self.store,self.owner_path,self.internal,self.gateway,
                          connection_factory=FakeConnection))
@@ -78,6 +137,7 @@ class OAuthHTTPTests(unittest.TestCase):
         self.server.shutdown()
         self.server.server_close()
         self.thread.join(3)
+        FakeConnection.mode=None
         self.temp.cleanup()
 
     def request(self,method,path,body=None,headers=None):
@@ -232,6 +292,59 @@ class OAuthHTTPTests(unittest.TestCase):
         self.assertEqual(forwarded["Mcp-Method"],"tools/list")
         self.assertEqual(forwarded["Mcp-Protocol-Version"],"2026-07-28")
         self.assertNotIn(tokens["access_token"],str(forwarded))
+
+    def test_oauth_preserves_mcp_session_id_across_initialize_notification_and_call(self):
+        _,tokens=self.login_and_token()
+        FakeConnection.mode="json"
+        def rpc(method, session=None):
+            headers={"Authorization":"Bearer "+tokens["access_token"],
+                     "Accept":"application/json, text/event-stream"}
+            if session:
+                headers["Mcp-Session-Id"]=session
+            payload={"jsonrpc":"2.0","method":method,
+                     "params":{}}
+            if method!="notifications/initialized":
+                payload["id"]=1
+            return self.post("/lunexpc-mcp",payload,kind="application/json",
+                             headers=headers)
+        status,headers,_=rpc("initialize")
+        self.assertEqual(status,200)
+        session=headers.get("Mcp-Session-Id")
+        self.assertEqual(session,FakeConnection.session_id)
+        status,_,body=rpc("notifications/initialized",session)
+        self.assertEqual(status,202,body)
+        status,_,body=rpc("tools/call",session)
+        self.assertEqual(status,200,body)
+        self.assertIn(b"read-only status OK",body)
+        self.assertEqual(rpc("tools/call")[0],400)
+        self.assertEqual(FakeConnection.received[-2][3]["Mcp-Session-Id"],session)
+
+    def test_oauth_rejects_malformed_session_id_without_proxying(self):
+        _,tokens=self.login_and_token()
+        FakeConnection.received=[]
+        status,_,_=self.post("/lunexpc-mcp",{
+            "jsonrpc":"2.0","id":2,"method":"tools/list"
+        },kind="application/json",headers={
+            "Authorization":"Bearer "+tokens["access_token"],
+            "Mcp-Session-Id":"invalid session ID",
+        })
+        self.assertEqual(status,400)
+        self.assertEqual(FakeConnection.received,[])
+
+    def test_oauth_preserves_session_id_for_sse_initialize(self):
+        _,tokens=self.login_and_token()
+        FakeConnection.mode="sse"
+        status,headers,body=self.post("/lunexpc-mcp",{
+            "jsonrpc":"2.0","id":1,"method":"initialize","params":{}
+        },kind="application/json",headers={
+            "Authorization":"Bearer "+tokens["access_token"],
+            "Accept":"text/event-stream",
+        })
+        self.assertEqual(status,200,body)
+        self.assertEqual(headers.get("Mcp-Session-Id"),FakeConnection.session_id)
+        self.assertEqual(headers["Content-Type"],"text/event-stream")
+        self.assertIn(b"event: message",body)
+        self.assertIn(b"protocolVersion",body)
 
     def test_legacy_alpha_key_still_permitted(self):
         status,h,body=self.post("/lunexpc-mcp",{

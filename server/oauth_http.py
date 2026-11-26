@@ -450,21 +450,39 @@ small{{color:#a7bfd2}}
                 for field in ("Mcp-Protocol-Version", "Mcp-Method", "Mcp-Name",
                               "Mcp-Session-Id", "Last-Event-ID"):
                     value = self.headers.get(field)
-                    if value and len(value) < 256 and "\r" not in value and "\n" not in value:
+                    if field == "Mcp-Session-Id" and value:
+                        # Keep the request and response session-id grammar
+                        # identical to prevent dropping a legitimate ID.
+                        if not re.fullmatch(r"[A-Za-z0-9._~-]{1,256}", value):
+                            raise OAuthError("invalid_request", 400)
+                    if value and len(value) <= 256 and "\r" not in value and "\n" not in value:
                         headers[field] = value
                 upstream.request("POST", "/devices/lunex/mcp", body=body, headers=headers)
                 reply = upstream.getresponse()
                 content_type = reply.getheader("Content-Type", "application/json")
+                # MCP sessions are created by the Windows agent during
+                # initialize, then sent by the client on subsequent calls.
+                # Forward only an explicitly validated, bounded session ID.
+                # Without it ChatGPT's initialize succeeds but tools/call and
+                # notifications/initialized fail with HTTP 400 upstream.
+                session_id = reply.getheader("Mcp-Session-Id")
+                session_headers = {}
+                if (isinstance(session_id, str) and
+                        re.fullmatch(r"[A-Za-z0-9._~-]{1,256}", session_id)):
+                    session_headers["Mcp-Session-Id"] = session_id
                 if (reply.status not in (200, 202, 204)
                         or "text/event-stream" not in content_type.lower()):
                     data = reply.read(MAX_RESPONSE + 1)
                     if len(data) > MAX_RESPONSE:
                         raise OAuthError("upstream_error", 502)
-                    self._send(reply.status, data, content_type)
+                    self._send(reply.status, data, content_type,
+                               headers=session_headers)
                     sent = True
                     return
                 self.send_response(reply.status)
                 self.send_header("Content-Type", "text/event-stream")
+                for field, val in session_headers.items():
+                    self.send_header(field, val)
                 self.send_header("Cache-Control", "no-cache, no-transform")
                 self.send_header("X-Accel-Buffering", "no")
                 self.send_header("Connection", "close")

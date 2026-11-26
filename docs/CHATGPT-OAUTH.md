@@ -71,6 +71,21 @@ after the first click. The dedicated bridge credential remains in a private
 The legacy Alpha 0.1 API-key plugin remains compatible through the new bridge
 for clients already configured using the original Bearer key.
 
+### MCP session continuity across OAuth bridge
+
+The Windows MCP HTTP endpoint uses a stateful streamable transport unless
+it is started in stateless mode. A successful initialize can return the
+Mcp-Session-Id response header. Both the internal gateway and the public
+OAuth MCP bridge must preserve that header on JSON and SSE responses.
+The client's subsequent notifications/initialized, tools/list and tools/call
+requests must send the same session ID back to Windows. Previously the public
+OAuth bridge silently dropped this response header, so initialize passed
+while later read-only calls received HTTP 400 (session not found).
+
+The bridge now passes only a syntactically valid bounded session ID, and
+rejects malformed client session IDs. It does not disclose bearer credentials,
+modify OAuth token semantics, or enable additional Windows tools.
+
 ### Modern MCP interoperability (2026-07-28)
 
 ChatGPT's current MCP client may initiate the connection using
