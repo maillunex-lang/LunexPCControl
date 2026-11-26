@@ -20,6 +20,8 @@ $agent = Join-Path $InstallRoot '.venv\Scripts\windows-mcp.exe'
 $sshTunnel = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) 'Start-ReverseTunnel.ps1'
 $identity = Join-Path $InstallRoot 'ssh\id_ed25519'
 $hostsFile = Join-Path $InstallRoot 'ssh\known_hosts'
+$authFile = Join-Path $InstallRoot 'integration\upstream.key'
+$authFilePresent = Test-Path -LiteralPath $authFile -PathType Leaf
 $agentPresent = Test-Path -LiteralPath $agent -PathType Leaf
 $tunnelScriptPresent = Test-Path -LiteralPath $sshTunnel -PathType Leaf
 $identityPresent = Test-Path -LiteralPath $identity -PathType Leaf
@@ -33,18 +35,79 @@ if ($Mode -eq 'Check') {
         TunnelScriptAvailable = $tunnelScriptPresent
         TunnelIdentityAvailable = $identityPresent
         PinnedHostKeyAvailable = $hostsPresent
-        EligibleForRun = ($isInteractive -and $agentPresent -and $tunnelScriptPresent -and $identityPresent -and $hostsPresent)
+        PrivateMcpCredentialAvailable = $authFilePresent
+        EligibleForRun = ($isInteractive -and $agentPresent -and $tunnelScriptPresent -and $identityPresent -and $hostsPresent -and $authFilePresent)
         AutoStartConfiguredByThisScript = $false
     } | Format-List
     return
 }
 if (-not $isInteractive) { throw 'Refusing to run agent outside the logged-in interactive Windows user session' }
-if (-not ($agentPresent -and $tunnelScriptPresent -and $identityPresent -and $hostsPresent)) {
-    throw 'Agent, tunnel script, or pinned SSH credentials missing; run Check first'
+if (-not ($agentPresent -and $tunnelScriptPresent -and $identityPresent -and $hostsPresent -and $authFilePresent)) {
+    throw 'Agent, tunnel script, pinned SSH identity or private MCP credential missing; run Check first'
+}
+if ((Get-Item -LiteralPath $authFile).Attributes -band [IO.FileAttributes]::ReparsePoint) {
+    throw 'Refusing redirected MCP credential file'
+}
+# The sole credential source is an ACL-restricted file in the interactive
+# user's profile. Never put the plaintext token on a process command line.
+$key = [IO.File]::ReadAllText($authFile).Trim()
+if ($key.Length -lt 32 -or $key.Length -gt 128 -or $key -notmatch '^[A-Za-z0-9_-]+$') {
+    throw 'Malformed private MCP credential'
+}
+if (Get-NetTCPConnection -LocalPort 18789 -State Listen -ErrorAction SilentlyContinue) {
+    throw 'Local MCP port 18789 is already bound; refusing duplicate instance'
+}
+$existingTunnel = @(Get-CimInstance Win32_Process -Filter 'name="ssh.exe"' -ErrorAction SilentlyContinue |
+    Where-Object { $_.SessionId -eq $session -and
+      $_.CommandLine -like '*lunexpc-tunnel@195.216.188.80*' -and
+      $_.CommandLine -like '*127.0.0.1:23789:127.0.0.1:18789*' })
+if ($existingTunnel.Count -gt 0) { throw 'A matching SSH tunnel is already running in this Windows session' }
+# The tunnel is not opened until an unauthenticated request is rejected.
+function Test-McpAuthentication {
+    $req = [System.Net.HttpWebRequest]::Create('http://127.0.0.1:18789/mcp')
+    $req.Method = 'POST'
+    $req.Timeout = 6000
+    $req.ContentType = 'application/json'
+    $req.Accept = 'application/json, text/event-stream'
+    $body = '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"lunexpc-auth-probe","version":"1"}}}'
+    $bytes = [Text.Encoding]::UTF8.GetBytes($body)
+    $req.ContentLength = $bytes.Length
+    $stream = $req.GetRequestStream()
+    try { $stream.Write($bytes, 0, $bytes.Length) } finally { $stream.Dispose() }
+    try {
+        $response = $req.GetResponse()
+        try { return $false } finally { $response.Dispose() }
+    } catch [Net.WebException] {
+        $response = $_.Exception.Response
+        if ($null -eq $response) { throw }
+        try { return ([int]$response.StatusCode -eq 401) }
+        finally { $response.Dispose() }
+    }
 }
 # Never spawn any shell or arbitrary command through this supervisor.
 $processes = [System.Collections.Generic.List[System.Diagnostics.Process]]::new()
+$priorAuth = [Environment]::GetEnvironmentVariable('WINDOWS_MCP_AUTH_KEY', 'Process')
+function Stop-OwnedTunnel {
+    # We checked no matching SSH tunnel existed before launching ours.
+    # Windows PowerShell can exit before its spawned ssh.exe child.
+    $owned = @(Get-CimInstance Win32_Process -Filter 'name="ssh.exe"' -ErrorAction SilentlyContinue |
+        Where-Object { $_.SessionId -eq $session -and
+            $_.CommandLine -like '*lunexpc-tunnel@195.216.188.80*' -and
+            $_.CommandLine -like '*127.0.0.1:23789:127.0.0.1:18789*' })
+    foreach ($entry in $owned) {
+        Stop-Process -Id $entry.ProcessId -Force -ErrorAction SilentlyContinue
+    }
+}
+function Stop-SupervisedTree([System.Diagnostics.Process]$child) {
+    if ($null -eq $child) { return }
+    try {
+        if (-not $child.HasExited) {
+            & taskkill.exe /PID ([string]$child.Id) /T /F 2>$null | Out-Null
+        }
+    } catch {}
+}
 try {
+    $env:WINDOWS_MCP_AUTH_KEY = $key
     $retry = 0
     while ($retry -lt $MaxRetries) {
         $agentProcess = Start-Process -FilePath $agent -ArgumentList @(
@@ -67,11 +130,16 @@ try {
             $retry++
             $failure = if ($agentProcess.HasExited) { "process exited with code $($agentProcess.ExitCode)" } else { 'port 18789 did not become ready' }
             Write-Warning "Windows MCP was not ready ($failure; attempt $retry)"
-            if (-not $agentProcess.HasExited) { Stop-Process -Id $agentProcess.Id -ErrorAction SilentlyContinue }
+            Stop-SupervisedTree $agentProcess
             if ($retry -lt $MaxRetries) { Start-Sleep -Seconds $RetrySeconds }
             continue
         }
-        $tunnelProcess = Start-Process -FilePath 'powershell.exe' -ArgumentList @(
+        # A successful TCP connection is not proof of authentication.
+        if (-not (Test-McpAuthentication)) {
+            throw 'Windows MCP accepted unauthenticated initialize; refusing tunnel'
+        }
+        $shellExecutable = Join-Path $PSHOME 'powershell.exe'
+        $tunnelProcess = Start-Process -FilePath $shellExecutable -ArgumentList @(
             '-NoProfile','-ExecutionPolicy','Bypass','-File', ('"' + $sshTunnel + '"')
         ) -PassThru -WindowStyle Hidden
         $processes.Add($tunnelProcess)
@@ -81,8 +149,9 @@ try {
             }
         }
         finally {
-            if (-not $tunnelProcess.HasExited) { Stop-Process -Id $tunnelProcess.Id -ErrorAction SilentlyContinue }
-            if (-not $agentProcess.HasExited) { Stop-Process -Id $agentProcess.Id -ErrorAction SilentlyContinue }
+            Stop-SupervisedTree $tunnelProcess
+            Stop-OwnedTunnel
+            Stop-SupervisedTree $agentProcess
         }
         $retry++
         if ($StopOnDisconnect) { break }
@@ -91,10 +160,10 @@ try {
     }
 }
 finally {
-    # Kill only child processes that were created by this supervisor.
-    foreach ($child in $processes) {
-        try {
-            if (-not $child.HasExited) { Stop-Process -Id $child.Id -ErrorAction SilentlyContinue }
-        } catch {}
-    }
+    # Kill only process trees started by this supervisor, including child
+    # ssh.exe spawned by powershell.exe; never leave detached SSH tunnels.
+    foreach ($child in $processes) { Stop-SupervisedTree $child }
+    Stop-OwnedTunnel
+    [Environment]::SetEnvironmentVariable('WINDOWS_MCP_AUTH_KEY', $priorAuth, 'Process')
+    $key = $null
 }

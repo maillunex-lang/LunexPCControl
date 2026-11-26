@@ -12,7 +12,10 @@ class AgentSupervisorTests(unittest.TestCase):
                         "Start-ReverseTunnel.ps1", "Stop-Process",
                         "MaxRetries", "StopOnDisconnect",
                         "'serve','--transport','streamable-http'",
-                        "ConnectAsync('127.0.0.1',18789)", "probe -lt 45"):
+                        "ConnectAsync('127.0.0.1',18789)", "probe -lt 45",
+                        "PrivateMcpCredentialAvailable", "WINDOWS_MCP_AUTH_KEY",
+                        "Test-McpAuthentication", "StatusCode -eq 401",
+                        "taskkill.exe /PID", "Join-Path $PSHOME 'powershell.exe'"):
             self.assertIn(segment,TEXT)
     def test_no_unwanted_autostart_or_extra_commands(self):
         for forbidden in ('schtasks.exe','New-ScheduledTask',
