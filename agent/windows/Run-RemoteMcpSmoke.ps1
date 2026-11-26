@@ -21,6 +21,12 @@ if(-not (Test-Path $agent) -or -not (Test-Path $identity) -or -not (Test-Path $k
 if(Get-NetTCPConnection -LocalPort 18789 -State Listen -ErrorAction SilentlyContinue) {
  throw 'Local Windows-MCP port already in use'
 }
+if(@(Get-CimInstance Win32_Process -Filter 'name="ssh.exe"' |
+    Where-Object { $_.SessionId -eq $session -and
+      $_.CommandLine -like '*lunexpc-tunnel@195.216.188.80*' -and
+      $_.CommandLine -like '*127.0.0.1:23789:127.0.0.1:18789*' }).Count -gt 0) {
+ throw 'Existing device tunnel in this session; refusing to overwrite it'
+}
 $incoming=Join-Path $root 'integration\upstream.key'
 if(-not(Test-Path -LiteralPath $incoming -PathType Leaf)) {
  throw 'Test credential not yet provisioned for this Windows user'
@@ -57,9 +63,35 @@ try {
  Write-Output 'REMOTE-MCP-WINDOWS-READY'
  Start-Sleep -Seconds $DurationSeconds
 } finally {
- if($tunnel -and -not $tunnel.HasExited){Stop-Process -Id $tunnel.Id -Force -ErrorAction SilentlyContinue}
- if($proc -and -not $proc.HasExited){Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue}
+ # Windows-MCP's console launcher can spawn a separate python.exe.
+ # Terminate the child process tree, not just the launcher process.
+ foreach($child in @($tunnel,$proc)) {
+  if($null -ne $child) {
+   try { & taskkill.exe /PID ([string]$child.Id) /T /F 2>$null | Out-Null }
+   catch { }
+  }
+ }
+ # Verify matching processes in THIS desktop session and stop any launcher
+ # children that detached from the original process tree.
+ $mcpPort=Get-NetTCPConnection -LocalPort 18789 -State Listen -ErrorAction SilentlyContinue
+ foreach($listener in @($mcpPort)) {
+  if($null -eq $listener){continue}
+  $ps=Get-CimInstance Win32_Process -Filter ('ProcessId='+$listener.OwningProcess) -ErrorAction SilentlyContinue
+  if($ps -and $ps.SessionId -eq $session -and
+     $ps.CommandLine -like '*LunexPCControl*windows-mcp.exe*' -and
+     $ps.CommandLine -like '*--port 18789*') {
+   Stop-Process -Id $ps.ProcessId -Force -ErrorAction SilentlyContinue
+  }
+ }
+ $tunnels=@(Get-CimInstance Win32_Process -Filter 'name="ssh.exe"' -ErrorAction SilentlyContinue |
+  Where-Object { $_.SessionId -eq $session -and
+   $_.CommandLine -like '*lunexpc-tunnel@195.216.188.80*' -and
+   $_.CommandLine -like '*127.0.0.1:23789:127.0.0.1:18789*' })
+ foreach($sshProcess in $tunnels) {
+  Stop-Process -Id $sshProcess.ProcessId -Force -ErrorAction SilentlyContinue
+ }
  [Environment]::SetEnvironmentVariable('WINDOWS_MCP_AUTH_KEY',$prev,'Process')
  [Environment]::SetEnvironmentVariable('ANONYMIZED_TELEMETRY',$prevTelemetry,'Process')
  Remove-Item -LiteralPath $incoming -Force -ErrorAction SilentlyContinue
+ Write-Output 'REMOTE-MCP-CLEANUP-COMPLETE'
 }
