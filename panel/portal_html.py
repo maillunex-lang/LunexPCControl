@@ -68,8 +68,11 @@ Lunex Connector, запустите сопряжение и введите ко�
 <button id="copyCode" type="button">Копировать код</button>
 <p class="muted">Код показывается только один раз и не сохраняется
 в браузере. Не отправляйте его посторонним.</p>
-<p>1. <a href="https://github.com/maillunex-lang/LunexPCControl/releases"
-target="_blank" rel="noopener noreferrer">Скачать коннектор с GitHub</a></p>
+<p>1. <a id="downloadConnector"
+href="https://github.com/maillunex-lang/LunexPCControl/releases/download/v0.3.0-connector-alpha.1/lunex-connector-windows-amd64.exe"
+target="_blank" rel="noopener noreferrer">Скачать коннектор Windows</a>
+· <a href="https://github.com/maillunex-lang/LunexPCControl/releases/download/v0.3.0-connector-alpha.1/SHA256SUMS.txt"
+target="_blank" rel="noopener noreferrer">SHA-256 для проверки файла</a></p>
 <p>2. Откройте терминал в папке скачанного файла и запустите:</p>
 <code id="pairCommand"></code>
 <p>3. Введите код выше. Для подключения выполните:</p>
@@ -129,6 +132,7 @@ async function load(){
  }catch(err){holder.textContent='Нет связи с сервером статуса.'}
 }
 const managed=document.getElementById('managedDevices');
+let invitationExpiry=null;
 async function refreshManaged(){
  try{
   const response=await fetch('/portalmcp/api/connectors',{cache:'no-store'});
@@ -169,6 +173,8 @@ document.getElementById('createInvite').addEventListener('click',async()=>{
  const os=document.getElementById('newOs').value;
  const name=document.getElementById('newName').value.trim();
  document.getElementById('inviteBox').hidden=true;
+ if(invitationExpiry){clearTimeout(invitationExpiry);invitationExpiry=null}
+ document.getElementById('pairCode').textContent='';
  btn.disabled=true;
  try{
   const res=await fetch('/portalmcp/api/connectors/invitations',{
@@ -178,10 +184,20 @@ document.getElementById('createInvite').addEventListener('click',async()=>{
   if(!res.ok)throw Error('HTTP '+res.status);
   const data=await res.json();
   document.getElementById('pairCode').textContent=data.pairing_code;
+  const release='https://github.com/maillunex-lang/LunexPCControl/releases/download/v0.3.0-connector-alpha.1/';
+  const asset=os==='windows'?'lunex-connector-windows-amd64.exe':'lunex-connector-linux-amd64';
+  const download=document.getElementById('downloadConnector');
+  download.href=release+asset;
+  download.textContent='Скачать коннектор '+(os==='windows'?'Windows':'Linux');
   const bin=os==='windows'?'.\\lunex-connector-windows-amd64.exe':'./lunex-connector-linux-amd64';
   document.getElementById('pairCommand').textContent=bin+' pair';
   document.getElementById('runCommand').textContent=bin+' run';
   document.getElementById('inviteBox').hidden=false;
+  invitationExpiry=setTimeout(()=>{
+   document.getElementById('pairCode').textContent='';
+   document.getElementById('inviteBox').hidden=true;
+   state.textContent='Срок кода истёк. Создайте новое приглашение.';
+  },data.expires_in_seconds*1000);
   state.textContent='Код готов. Используйте его на выбранном устройстве.';
  }catch(e){state.textContent='Ошибка создания приглашения: '+e.message}
  finally{btn.disabled=false}

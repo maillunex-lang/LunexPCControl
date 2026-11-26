@@ -1,5 +1,5 @@
 [Unit]
-Description=LunexPCControl local read-only dashboard
+Description=LunexPCControl owner portal and device enrollment
 After=network.target lunexpc-gateway.service
 ConditionPathExists=/var/lib/lunexpc-gateway/registry.sqlite
 
@@ -16,7 +16,7 @@ Environment=PYTHONDONTWRITEBYTECODE=1
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
-ReadWritePaths=/var/lib/lunexpc-gateway/screens
+ReadWritePaths=/var/lib/lunexpc-gateway/screens /var/lib/lunexpc-gateway/connectors
 ProtectHome=yes
 PrivateDevices=yes
 ProtectKernelTunables=yes

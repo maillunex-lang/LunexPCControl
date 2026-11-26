@@ -15,6 +15,9 @@ class ConnectorUITests(unittest.TestCase):
             'connector-revoke',
             'connector-invite',
             'textContent=data.pairing_code',
+            'v0.3.0-connector-alpha.1',
+            'SHA256SUMS.txt',
+            'id="downloadConnector"',
             'confirm(',
             'Мой компьютер',
         ):

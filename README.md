@@ -14,9 +14,9 @@ read-only desktop Screenshot and ControlStatus.
 - Gateway runs under a dedicated unprivileged systemd account,
   with a private SQLite registry, token validation, tool allowlisting,
   rate limiting, audit logging and log rotation.
-- A private, responsive, **read-only HTML dashboard** on
-  127.0.0.1:18881, with Basic authentication from a private local
-  password file; it shows sanitized counts and audit events.
+- An owner-authenticated HTML portal on 127.0.0.1:18881, with
+  read-only status views plus limited pairing and retention controls,
+  protected by a private local password file.
 - Separate Screen Monitor at /monitor with encrypted history, fullscreen
   preview, live 3-second polling of AI screenshots, controls for retention
   and clearing, and an action timeline. Capture is disabled by default.

@@ -1,4 +1,6 @@
-"""Read-only local dashboard for LunexPCControl. No control endpoints.
+"""Owner-authenticated portal, limited pairing and read-only desktop status.
+
+No shell, device input or arbitrary command endpoints are exposed.
 
 The backend displays only sanitized counts, fixed-category audit records,
 and agent presence (locally registered, not necessarily online). It never
@@ -615,7 +617,7 @@ def main():
     server.panel_auth = auth
     server.registry_path = GATEWAY_REGISTRY
     server.connector_registry = ConnectorRegistry(
-        "/var/lib/lunexpc-gateway/connectors.sqlite")
+        "/var/lib/lunexpc-gateway/connectors/registry.sqlite")
     server.connector_limiter = RateLimiter(limit=60,window=60)
     server.live_view = LiveFrameService(GATEWAY_REGISTRY)
     server.stream_gate = StreamGate()
