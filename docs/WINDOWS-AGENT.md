@@ -52,3 +52,27 @@ profiles or assume an SSH/Termalin shell can capture the RDP user's screen.
 The default `Bootstrap.ps1 -Start` now exposes only the `Screenshot` MCP tool,
 with strict desktop control policy. Additional input, PowerShell and filesystem
 tools will require a separate policy and explicit consent. No autostart.
+
+## Screenshot integration smoke test
+
+Run these commands only in the interactive Windows account whose screen you
+intend to inspect, **after** provisioning a strong Windows-MCP bearer secret
+securely in that process's environment:
+
+```powershell
+# First start the agent in a separate interactive terminal:
+.\Bootstrap.ps1 -Start
+# Then from the same desktop account, in another terminal:
+.\.venv\Scripts\python.exe .\smoke_screenshot.py --check
+.\.venv\Scripts\python.exe .\smoke_screenshot.py
+```
+
+The script enforces loopback-only transport, verifies the server exports
+exactly `Screenshot`, calls that tool, validates PNG image data and reports
+only image count and byte size. It does not write the screenshot or reveal the
+token. It is not a substitute for user consent and cannot validate a different
+Windows session.
+
+**Paths in the example are illustrative:** use the current user's
+`LocalAppData\LunexPCControl\.venv` interpreter and the repository's
+`agent/windows` scripts.
