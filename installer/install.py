@@ -26,6 +26,7 @@ FILES = {
     "server/gateway_policy.py": APP_DIR / "server/gateway_policy.py",
     "server/screen_history.py": APP_DIR / "server/screen_history.py",
     "server/enrollment.py": APP_DIR / "server/enrollment.py",
+    "server/connector_registry.py": APP_DIR / "server/connector_registry.py",
     "server/sealed_token.py": APP_DIR / "server/sealed_token.py",
     "server/tunnel_config.py": APP_DIR / "server/tunnel_config.py",
     "deploy/verify-gateway.sh": APP_DIR / "deploy/verify-gateway.sh",

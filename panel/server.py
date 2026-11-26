@@ -22,6 +22,8 @@ from panel.live_view import LiveFrameService, LiveError, probe_devices
 from panel.mjpeg_stream import StreamGate, StreamBusy, stream_frames, content_type
 from panel.h264_proxy import open_h264_stream, MAX_H264_BYTES, MAX_H264_SECONDS
 from server.screen_history import ScreenHistory
+from server.connector_registry import ConnectorRegistry, PairingError
+from server.gateway_policy import RateLimiter
 import re
 
 GATEWAY_REGISTRY = Path(os.environ.get(
@@ -253,6 +255,17 @@ class PanelHandler(BaseHTTPRequestHandler):
             self._write(200, self._ui(devices_page()), "text/html; charset=utf-8")
         elif parsed.path == "/live":
             self._write(200, self._ui(live_page()), "text/html; charset=utf-8")
+        elif parsed.path == "/api/connectors":
+            service=getattr(self.server, "connector_registry", None)
+            if service is None:
+                self._write(503,b'{"error":"registry unavailable"}',"application/json")
+                return
+            try:
+                payload=json.dumps({"devices":service.list_devices()},
+                                   separators=(",",":")).encode()
+                self._write(200,payload,"application/json")
+            except (OSError,sqlite3.Error):
+                self._write(503,b'{"error":"registry unavailable"}',"application/json")
         elif parsed.path == "/api/devices":
             try:
                 devices = probe_devices(self._registry())
@@ -430,7 +443,64 @@ class PanelHandler(BaseHTTPRequestHandler):
         finally:
             gate.release()
 
+    def _read_connector_json(self):
+        if self.headers.get("Content-Type") != "application/json":
+            raise PairingError("expected JSON")
+        sizes=self.headers.get_all("Content-Length", [])
+        if (len(sizes)!=1 or not sizes[0].isdecimal()
+                or int(sizes[0])>2048 or self.headers.get("Transfer-Encoding")):
+            raise PairingError("invalid framing")
+        raw=self.rfile.read(int(sizes[0]))
+        doc=json.loads(raw)
+        if type(doc) is not dict:
+            raise PairingError("invalid JSON document")
+        return doc
+
+    def _connector_public(self, target):
+        # Only zero-trust enrollment and signed heartbeat. No tool execution.
+        if not self._trusted_host():
+            self._write(403,b"Forbidden","text/plain")
+            return
+        if (len(self.headers.get_all("X-LunexPC-Connector",[]))!=1
+                or self.headers.get("X-LunexPC-Connector")!="v1"):
+            self._write(403,b"Invalid connector protocol","text/plain")
+            return
+        limiter=getattr(self.server,"connector_limiter",None)
+        registry=getattr(self.server,"connector_registry",None)
+        if registry is None or limiter is None:
+            self._write(503,b"Enrollment disabled","text/plain")
+            return
+        if not limiter.allow("connectors"):
+            self._write(429,b"Try again later","text/plain")
+            return
+        try:
+            payload=self._read_connector_json()
+            if target.path=="/api/connectors/claim":
+                if set(payload)!={"pairing_code","os","public_key"}:
+                    raise PairingError("invalid pairing request")
+                result=registry.claim(payload["pairing_code"],payload["os"],payload["public_key"])
+            elif target.path=="/api/connectors/heartbeat":
+                if set(payload)!={"device_id","timestamp","nonce","signature"}:
+                    raise PairingError("invalid heartbeat")
+                result=registry.heartbeat(payload["device_id"],payload["timestamp"],
+                                          payload["nonce"],payload["signature"])
+            else:
+                self._write(404,b"Not found","text/plain")
+                return
+        except (PairingError,ValueError,TypeError,UnicodeDecodeError,KeyError,sqlite3.IntegrityError):
+            self._write(403,b"Enrollment or authentication rejected","text/plain")
+            return
+        except (OSError,sqlite3.Error):
+            self._write(503,b"Registry unavailable","text/plain")
+            return
+        self._write(200,json.dumps(result,separators=(",",":")).encode(),"application/json")
+
     def do_POST(self):
+        target=urlsplit(self.path)
+        if (self.command=="POST" and not target.query and not target.fragment
+                and target.path in ("/api/connectors/claim","/api/connectors/heartbeat")):
+            self._connector_public(target)
+            return
         if not self._trusted_host(mutation=True):
             self._write(403,b"Forbidden","text/plain")
             return
@@ -438,7 +508,9 @@ class PanelHandler(BaseHTTPRequestHandler):
             return
         target=urlsplit(self.path)
         actions={"/api/screens/settings":"screens-settings",
-                 "/api/screens/clear":"screens-clear"}
+                 "/api/screens/clear":"screens-clear",
+                 "/api/connectors/invitations":"connector-invite",
+                 "/api/connectors/revoke":"connector-revoke"}
         action=actions.get(target.path)
         if action is None or target.query:
             self._write(405,b"Operation not supported","text/plain")
@@ -462,6 +534,23 @@ class PanelHandler(BaseHTTPRequestHandler):
             payload=json.loads(self.rfile.read(size))
             if not isinstance(payload,dict):
                 raise ValueError("invalid body")
+            if action in ("connector-invite","connector-revoke"):
+                if self.command != "POST":
+                    self._write(405,b"POST required","text/plain")
+                    return
+                registry=getattr(self.server,"connector_registry",None)
+                if registry is None:
+                    raise OSError("connector registry unavailable")
+                if action=="connector-invite":
+                    if set(payload)!={"os","name"}:
+                        raise ValueError("invalid invite request")
+                    result=registry.invite(payload["os"],payload["name"])
+                else:
+                    if set(payload)!={"device_id"}:
+                        raise ValueError("invalid revoke request")
+                    result=registry.revoke(payload["device_id"])
+                self._write(200,json.dumps(result,separators=(",",":")).encode(),"application/json")
+                return
             store=self._screens()
             if store is None:
                 raise OSError("history unavailable")
@@ -475,7 +564,7 @@ class PanelHandler(BaseHTTPRequestHandler):
                 store.clear()
                 result={"cleared":True}
         except (ValueError,TypeError,UnicodeDecodeError):
-            self._write(400,b"Invalid settings","text/plain")
+            self._write(400,b"Invalid request","text/plain")
             return
         except (OSError,sqlite3.Error):
             self._write(503,b"Storage unavailable","text/plain")
@@ -525,6 +614,9 @@ def main():
     server = ThreadingHTTPServer((args.bind, args.port), PanelHandler)
     server.panel_auth = auth
     server.registry_path = GATEWAY_REGISTRY
+    server.connector_registry = ConnectorRegistry(
+        "/var/lib/lunexpc-gateway/connectors.sqlite")
+    server.connector_limiter = RateLimiter(limit=60,window=60)
     server.live_view = LiveFrameService(GATEWAY_REGISTRY)
     server.stream_gate = StreamGate()
     server.h264_gate = StreamGate(1)

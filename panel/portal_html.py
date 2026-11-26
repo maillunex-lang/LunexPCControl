@@ -22,7 +22,15 @@ nav a[aria-current=page]{background:#193b52;border-color:#427eaa}
 .device{display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap}
 .state{font-size:12px;padding:7px 12px;border-radius:25px;background:#293542;color:#d2dce8}
 .on{background:#164735;color:#aaf0cb}.off{background:#473129;color:#ffc1a6}
-button{font:inherit;background:#173f58;border:1px solid #38769b;color:#e2f7ff;border-radius:10px;padding:10px 14px;cursor:pointer}
+button,input,select{font:inherit;background:#173f58;border:1px solid #38769b;color:#e2f7ff;border-radius:10px;padding:10px 14px}
+button{cursor:pointer}
+input{max-width:250px;width:100%}
+select{max-width:200px}
+.form-row{display:flex;align-items:center;flex-wrap:wrap;gap:10px}
+#pairCode{display:block;overflow-wrap:anywhere;line-height:1.9;user-select:all;padding:12px;margin:10px 0}
+#inviteBox{border:1px solid #3b718b;border-radius:12px;padding:15px;margin:14px 0;background:#102b3e}
+#inviteBox[hidden]{display:none}
+.manage-row{display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;border-top:1px solid #2b4258;padding:12px 0}
 button:focus-visible,a:focus-visible{outline:2px solid #a5eaff}
 .muted{color:#8fa2b5;font-size:13px}
 code{background:#0b1622;border-radius:6px;padding:2px 5px;word-break:break-word}
@@ -41,6 +49,42 @@ code{background:#0b1622;border-radius:6px;padding:2px 5px;word-break:break-word}
 <p class="muted">«В сети» означает доступность обратного SSH-туннеля.
 Проверка разрешения на экран выполняется отдельно при открытии Live View.</p>
 <button id="reload" type="button">Проверить сейчас</button></section>
+<section class="card" id="addDevice">
+<h2>Добавить Windows или Linux</h2>
+<p>Создайте одноразовый код на 10 минут. На новом компьютере скачайте
+Lunex Connector, запустите сопряжение и введите код. Установка не
+открывает входящие порты и не даёт ИИ доступ к мыши или терминалу.</p>
+<div class="form-row">
+<label for="newOs">Система</label>
+<select id="newOs"><option value="windows">Windows</option>
+<option value="linux">Ubuntu / Linux</option></select>
+<label for="newName">Имя</label>
+<input id="newName" maxlength="48" value="Мой компьютер" aria-label="Имя устройства">
+<button id="createInvite" type="button">Создать код подключения</button>
+</div>
+<div id="inviteBox" hidden>
+<strong>Код подключения, действителен 10 минут</strong>
+<code id="pairCode"></code>
+<button id="copyCode" type="button">Копировать код</button>
+<p class="muted">Код показывается только один раз и не сохраняется
+в браузере. Не отправляйте его посторонним.</p>
+<p>1. <a href="https://github.com/maillunex-lang/LunexPCControl/releases"
+target="_blank" rel="noopener noreferrer">Скачать коннектор с GitHub</a></p>
+<p>2. Откройте терминал в папке скачанного файла и запустите:</p>
+<code id="pairCommand"></code>
+<p>3. Введите код выше. Для подключения выполните:</p>
+<code id="runCommand"></code>
+<p class="muted">При первом запуске соединение только сообщает
+онлайн-статус. Права доступа выдаются отдельно.</p>
+</div>
+<p id="inviteState" role="status" class="muted"></p>
+</section>
+<section class="card"><h2>Коннекторы</h2>
+<p class="muted">Подтверждённые устройства. Отзыв подключения немедленно
+отменяет право отправлять статус.</p>
+<div id="managedDevices" role="status">Загрузка списка...</div>
+<button id="refreshManaged" type="button">Обновить список</button>
+</section>
 <section class="grid">
 <div class="card"><h2>1. Установить агент</h2><p>Установите клиент LunexPCControl
 в Windows из проверенного релиза и войдите в свою пользовательскую сессию.</p></div>
@@ -54,10 +98,10 @@ code{background:#0b1622;border-radius:6px;padding:2px 5px;word-break:break-word}
 <section class="card"><h2>Параметры подключения</h2>
 <p>Транспорт: исходящий SSH к VPS. Защита: закреплённый ключ сервера,
 отдельный ключ MCP, независимая авторизация панели и клиентов.</p>
-<p class="muted">Пока регистрация и выдача новых ключей выполняются через
-проверенные серверные команды. Встроенный мастер сопряжения будет добавлен
-после выпуска безопасного механизма отзыва и обновления ключей.
-Пароли и приватные ключи в браузере не отображаются.</p></section>
+<p class="muted">Мастер сопряжения доступен выше. Приватный ключ создаётся
+на самом устройстве и не передаётся порталу. В этой версии коннектор
+показывает состояние онлайн. Удалённое управление подключим после
+отдельного утверждения разрешений и механизма аварийной остановки.</p></section>
 </div><script>
 const holder=document.getElementById('devices');
 async function load(){
@@ -84,8 +128,72 @@ async function load(){
   }
  }catch(err){holder.textContent='Нет связи с сервером статуса.'}
 }
+const managed=document.getElementById('managedDevices');
+async function refreshManaged(){
+ try{
+  const response=await fetch('/portalmcp/api/connectors',{cache:'no-store'});
+  if(!response.ok)throw Error('HTTP '+response.status);
+  const data=await response.json();
+  managed.replaceChildren();
+  if(!data.devices.length){
+   const p=document.createElement('p');p.textContent='Новых коннекторов пока нет.';
+   managed.append(p);return
+  }
+  for(const dev of data.devices){
+   const wrap=document.createElement('div');wrap.className='manage-row';
+   const info=document.createElement('div');
+   const title=document.createElement('strong');title.textContent=dev.name;
+   const meta=document.createElement('p');meta.className='muted';
+   meta.textContent=dev.os+' · '+(dev.online?'В сети':'Офлайн')+' · '+dev.id.slice(0,8);
+   info.append(title,meta);
+   const revoke=document.createElement('button');revoke.type='button';
+   revoke.textContent='Отозвать';
+   revoke.addEventListener('click',async()=>{
+    if(!confirm('Отозвать подключение '+dev.name+'?'))return;
+    revoke.disabled=true;
+    try{
+     const res=await fetch('/portalmcp/api/connectors/revoke',{
+      method:'POST',headers:{'Content-Type':'application/json',
+       'X-LunexPC-Action':'connector-revoke'},
+      body:JSON.stringify({device_id:dev.id})});
+     if(!res.ok)throw Error('HTTP '+res.status);
+     await refreshManaged();
+    }catch(err){revoke.disabled=false;alert('Не удалось отозвать: '+err.message)}
+   });
+   wrap.append(info,revoke);managed.append(wrap);
+  }
+ }catch(e){managed.textContent='Не удалось получить список: '+e.message}
+}
+document.getElementById('createInvite').addEventListener('click',async()=>{
+ const btn=document.getElementById('createInvite'),state=document.getElementById('inviteState');
+ const os=document.getElementById('newOs').value;
+ const name=document.getElementById('newName').value.trim();
+ document.getElementById('inviteBox').hidden=true;
+ btn.disabled=true;
+ try{
+  const res=await fetch('/portalmcp/api/connectors/invitations',{
+   method:'POST',headers:{'Content-Type':'application/json',
+    'X-LunexPC-Action':'connector-invite'},
+   body:JSON.stringify({os,name})});
+  if(!res.ok)throw Error('HTTP '+res.status);
+  const data=await res.json();
+  document.getElementById('pairCode').textContent=data.pairing_code;
+  const bin=os==='windows'?'.\\lunex-connector-windows-amd64.exe':'./lunex-connector-linux-amd64';
+  document.getElementById('pairCommand').textContent=bin+' pair';
+  document.getElementById('runCommand').textContent=bin+' run';
+  document.getElementById('inviteBox').hidden=false;
+  state.textContent='Код готов. Используйте его на выбранном устройстве.';
+ }catch(e){state.textContent='Ошибка создания приглашения: '+e.message}
+ finally{btn.disabled=false}
+});
+document.getElementById('copyCode').addEventListener('click',async()=>{
+ try{await navigator.clipboard.writeText(document.getElementById('pairCode').textContent);
+  document.getElementById('inviteState').textContent='Код скопирован';
+ }catch(e){document.getElementById('inviteState').textContent='Выделите и скопируйте код вручную'}
+});
 document.getElementById('reload').addEventListener('click',load);
-load();setInterval(load,5000);
+document.getElementById('refreshManaged').addEventListener('click',refreshManaged);
+load();refreshManaged();setInterval(load,5000);setInterval(refreshManaged,10000);
 </script></body></html>""".encode("utf-8")
 
 

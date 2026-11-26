@@ -38,3 +38,15 @@ No embedded credentials; per-device authentication; least privilege; explicit ap
 - [ ] End-user browser-based secure device enrollment and key rotation
 - [ ] Review smoother WebRTC video if needed after measuring bandwidth
 - [ ] Standalone ChatGPT HTTPS MCP plugin and owner authorization
+
+## Lunex Connector M01-M02 first delivery (2026-11-26)
+
+- [x] Shared architectural GDD with per-device scope and release gates
+- [x] Separate private SQLite registry and 256-bit one-time pairing codes
+- [x] Server-verified Ed25519 device presence and replay protection
+- [x] Authenticated portal invite, connector list and owner revocation
+- [x] Go Windows/Linux presence connector using outbound HTTPS
+- [ ] Test two downloaded release binaries on separate fresh client machines
+- [ ] Durable, OS-native auto-start and safe signed updates
+- [ ] Full per-device command/file/input grants, emergency stop and audit
+- [ ] Deploy and verify ChatGPT MCP plugin independently

@@ -34,6 +34,15 @@ read-only desktop Screenshot and ControlStatus.
 closed. ChatGPT plugin login, unattended Windows lifecycle, production
 backup/upgrade and external security review are not complete.
 
+## Lunex Connector alpha
+
+The new self-hosted device enrollment design includes a Go connector
+for Windows and Linux, one-time 10-minute pairing in the portal,
+Ed25519-signed presence heartbeats and owner revocation. Enrollment
+provides **online presence only** and does not grant desktop, files,
+shell or ChatGPT MCP tool permissions. See [GDD](docs/GDD-LUNEX-CONNECTOR-v0.1.md)
+and [quickstart](docs/CONNECTOR-QUICKSTART.md).
+
 ## Portable VPS install
 
 A single bootstrap command can install a NEW Ubuntu 24.04/26.04 VPS from
