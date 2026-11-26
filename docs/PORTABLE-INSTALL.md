@@ -141,3 +141,14 @@ NOT stop services, activate a release, modify the registry or update
 systemd units. Activation must be protected with a validated encrypted
 backup, deployment health checks and an automatic rollback; those are
 still planned. Do not treat staging as an already deployed update.
+
+
+## Screenshot Monitor dependencies
+
+Both panel and gateway now use the cryptography package for AES-256-GCM
+screen history. The portable installer checks whether system Python can
+import this package before applying changes. On Ubuntu, the package
+python3-cryptography can be installed separately if necessary. A private
+0700 screenshot folder is created under /var/lib/lunexpc-gateway by the
+dedicated unprivileged service. This directory, its history key and
+encrypted screenshots are excluded from public GitHub source.

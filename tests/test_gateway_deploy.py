@@ -14,6 +14,7 @@ class GatewayDeployTests(unittest.TestCase):
   self.assertIn('--port 18880',UNIT)
   self.assertNotIn('--bind 0.0.0.0',UNIT)
   self.assertIn('--audit /var/log/lunexpc-gateway/audit.jsonl',UNIT)
+  self.assertIn('--screens-dir /var/lib/lunexpc-gateway/screens',UNIT)
  def test_rotation_permissions(self):
   for value in ('daily','rotate 14','compress','create 0600 lunexpc-gateway lunexpc-gateway','su lunexpc-gateway lunexpc-gateway'):
    self.assertIn(value,ROTATE)

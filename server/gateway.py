@@ -18,6 +18,7 @@ from urllib.parse import urlsplit
 from server.gateway_policy import (AuditLog, RateLimiter, PolicyError,
                                    inspect_request, filtered_response,
                                    filtered_sse_event)
+from server.screen_history import ScreenHistory
 
 MAX_BODY = 4 * 1024 * 1024
 MAX_RESPONSE = 16 * 1024 * 1024
@@ -127,7 +128,7 @@ class GatewayRegistry:
 
 def make_handler(registry, upstream_factory=http.client.HTTPConnection, *,
                  rate_limiter=None, preauth_limiter=None, audit=None,
-                 max_active=8):
+                 max_active=8, screen_history=None):
     rate_limiter = rate_limiter or RateLimiter(limit=120, window=60)
     preauth_limiter = preauth_limiter or RateLimiter(
         limit=300, window=60, max_identities=16)
@@ -255,6 +256,15 @@ def make_handler(registry, upstream_factory=http.client.HTTPConnection, *,
                     self._audit("invalid" if rejected.category == "invalid"
                                 else "blocked", "denied", rejected.status)
                     return
+            # Record only screenshots whose request started after the user
+            # enabled archiving. This prevents capturing an earlier request
+            # if recording is toggled while its upstream response is pending.
+            capture_this_call = False
+            if screen_history is not None and method_category == "call_screenshot":
+                try:
+                    capture_this_call = bool(screen_history.settings()["enabled"])
+                except Exception:
+                    capture_this_call = False
             request_headers = {
                 key: value for key, value in self.headers.items()
                 if key.lower() in PASSTHROUGH_HEADERS
@@ -280,6 +290,8 @@ def make_handler(registry, upstream_factory=http.client.HTTPConnection, *,
                     # Never forward an unfiltered tool listing or capability
                     # advertisement. Accumulate only complete SSE events.
                     filter_events = method_category in ("list", "initialize")
+                    capture_events = capture_this_call
+                    buffer_events = filter_events or capture_events
                     pending = bytearray()
                     # Send headers immediately; never buffer an unbounded SSE stream.
                     self.send_response(response.status)
@@ -299,14 +311,24 @@ def make_handler(registry, upstream_factory=http.client.HTTPConnection, *,
                         chunk = response.read1(65536)
                         if not chunk:
                             break
-                        if filter_events:
+                        if buffer_events:
                             pending.extend(chunk)
                             pending[:] = pending.replace(b"\r\n", b"\n")
                             while b"\n\n" in pending:
                                 index = pending.index(b"\n\n") + 2
                                 event = bytes(pending[:index])
                                 del pending[:index]
-                                framed = filtered_sse_event(event, method_category)
+                                framed = filtered_sse_event(event, method_category) if filter_events else event
+                                if capture_events:
+                                    try:
+                                        lines = event.replace(b"\r\n",b"\n").split(b"\n")
+                                        payload = b"\n".join(line[5:].lstrip(b" ") for line in lines
+                                            if line.startswith(b"data:"))
+                                        if payload:
+                                            screen_history.capture(match.group(1), payload)
+                                    except Exception:
+                                        # Archiving is best effort and must never block MCP.
+                                        pass
                                 self.wfile.write(framed)
                                 self.wfile.flush()
                             if len(pending) > MAX_RESPONSE:
@@ -315,7 +337,7 @@ def make_handler(registry, upstream_factory=http.client.HTTPConnection, *,
                         else:
                             self.wfile.write(chunk)
                             self.wfile.flush()
-                    if filter_events and pending:
+                    if buffer_events and pending:
                         self.close_connection = True
                         return
                 else:
@@ -330,6 +352,12 @@ def make_handler(registry, upstream_factory=http.client.HTTPConnection, *,
                             self._respond(502, b"Invalid upstream MCP response")
                             self._audit("upstream_error", method_category, 502)
                             return
+                    if response.status == 200 and capture_this_call:
+                        try:
+                            screen_history.capture(match.group(1),output)
+                        except Exception:
+                            # Recording failures must not alter the MCP result.
+                            pass
                     self.send_response(response.status)
                     for key, value in response.getheaders():
                         if key.lower() in RESPONSE_HEADERS and "\r" not in value and "\n" not in value:
@@ -367,14 +395,17 @@ def make_handler(registry, upstream_factory=http.client.HTTPConnection, *,
     return GatewayHandler
 
 
-def serve(registry_path, bind="127.0.0.1", port=18880, audit_path=None):
+def serve(registry_path, bind="127.0.0.1", port=18880,
+          audit_path=None, screens_dir=None):
     if not audit_path:
         raise ValueError("a private audit path is required when serving MCP")
     if bind not in ("127.0.0.1", "::1"):
         raise ValueError("gateway must remain loopback-only behind TLS proxy")
     registry = GatewayRegistry(registry_path)
     audit = AuditLog(audit_path) if audit_path else None
-    httpd = ThreadingHTTPServer((bind, port), make_handler(registry, audit=audit))
+    screens = ScreenHistory(screens_dir) if screens_dir else None
+    httpd = ThreadingHTTPServer((bind, port), make_handler(
+        registry, audit=audit, screen_history=screens))
     httpd.serve_forever()
 
 
@@ -385,5 +416,8 @@ if __name__ == "__main__":
     parser.add_argument("--port", type=int, default=18880)
     parser.add_argument("--audit", required=True,
                         help="private JSONL audit log path (0600)")
+    parser.add_argument("--screens-dir",
+                        help="private AES-GCM screenshot history folder (0700)")
     args = parser.parse_args()
-    serve(args.registry, port=args.port, audit_path=args.audit)
+    serve(args.registry, port=args.port, audit_path=args.audit,
+          screens_dir=args.screens_dir)

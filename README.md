@@ -17,6 +17,9 @@ read-only desktop Screenshot and ControlStatus.
 - A private, responsive, **read-only HTML dashboard** on
   127.0.0.1:18881, with Basic authentication from a private local
   password file; it shows sanitized counts and audit events.
+- Separate Screen Monitor at /monitor with encrypted history, fullscreen
+  preview, live 3-second polling of AI screenshots, controls for retention
+  and clearing, and an action timeline. Capture is disabled by default.
 - Complete first-party source, Windows scripts, tests, installer,
   deployment templates and the unmodified MIT-licensed Windows-MCP
   upstream source are preserved in this repository.
@@ -65,6 +68,13 @@ is a planned release feature.
 The project also includes a bounded AES-256-GCM backup tool and immutable
 checksum-verified update staging. Automated restore, deployment activation
 with rollback, and a full one-click upgrade remain under development.
+
+## Screenshot monitoring
+
+Open the private dashboard, choose Screen Monitor, and enable retention.
+Images appear when an authenticated AI calls the approved Screenshot
+tool through the gateway. There is no independent continuous video capture.
+See the screen monitoring documentation in docs/SCREEN-MONITOR.md.
 
 ## Roadmap
 

@@ -1,5 +1,6 @@
 """Full HTTP path tests for fail-closed MCP restrictions."""
 import http.client
+import base64
 import json
 import os
 from pathlib import Path
@@ -12,6 +13,8 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 from server.gateway import GatewayRegistry, make_handler, serve
 from server.gateway_policy import AuditLog, RateLimiter
+from server.screen_history import ScreenHistory
+from tests.test_screen_history import sample_png
 
 
 TOOLS = [
@@ -41,7 +44,7 @@ class UpstreamMCP(BaseHTTPRequestHandler):
                 "instructions": "private-upstream-instructions"}
         else:
             result = {"content": [
-                {"type": "image", "mimeType": "image/png", "data": "iVBORw0KGgo="}
+                {"type": "image", "mimeType": "image/png", "data": base64.b64encode(sample_png()).decode()}
             ]}
         data = json.dumps({"jsonrpc": "2.0", "id": request.get("id"),
                            "result": result}).encode()
@@ -84,9 +87,11 @@ class SecurityHTTPTests(unittest.TestCase):
         self.token = self.registry.create_client("pc")
         self.audit_file = Path(self.folder.name) / "events.jsonl"
         self.audit = AuditLog(self.audit_file)
+        self.screens = ScreenHistory(Path(self.folder.name) / "screens")
         self.gateway = start(make_handler(
             self.registry, audit=self.audit,
-            rate_limiter=RateLimiter(limit=100,window=60)))
+            rate_limiter=RateLimiter(limit=100,window=60),
+            screen_history=self.screens))
 
     def tearDown(self):
         self.gateway.shutdown()
@@ -168,10 +173,33 @@ class SecurityHTTPTests(unittest.TestCase):
         self.assertNotIn(b"resources",body)
         self.assertNotIn(b"prompts",body)
 
+    def test_screenshot_archived_only_after_opt_in(self):
+        status, response = self.rpc("tools/call",{"name":"Screenshot","arguments":{}})
+        self.assertEqual(status,200)
+        self.assertEqual(self.screens.list(),[])
+        self.screens.configure(24,50)
+        status, response = self.rpc("tools/call",{"name":"Screenshot","arguments":{}})
+        self.assertEqual(status,200)
+        images=self.screens.list()
+        self.assertEqual(len(images),1)
+        self.assertEqual(self.screens.image(images[0]["id"]),sample_png())
+        self.assertEqual(self.rpc("tools/call",{"name":"PowerShell"})[0],403)
+        self.assertEqual(len(self.screens.list()),1)
+        self.screens.configure(0)
+        self.assertEqual(self.screens.list(),[])
+
+    def test_screenshot_sse_archived(self):
+        self.screens.configure(24,50)
+        status, data = self.rpc("tools/call",{"name":"Screenshot","arguments":{}},sse=True)
+        self.assertEqual(status,200)
+        self.assertIn(b"data:",data)
+        self.assertEqual(len(self.screens.list()),1)
+        self.assertEqual(self.screens.image(self.screens.list()[0]["id"]),sample_png())
+
     def test_read_only_call_and_audit(self):
         status, body = self.rpc("tools/call", {"name": "Screenshot", "arguments": {}})
         self.assertEqual(status, 200)
-        self.assertIn(b"iVBORw0KGgo=",body)
+        self.assertIn(b"iVBORw0KGgo",body)
         self.assertEqual(len(self.upstream.received), 1)
         entries = [json.loads(line) for line in self.wait_audit(1)]
         self.assertEqual(entries[0]["event"], "allowed")

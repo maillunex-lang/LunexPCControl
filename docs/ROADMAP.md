@@ -11,3 +11,16 @@
 
 ## Security requirements
 No embedded credentials; per-device authentication; least privilege; explicit approval for destructive operations; revocation and emergency stop; encrypted transport; no public raw desktop or shell endpoint.
+
+
+## Screenshot Monitor milestone (2026-11-26)
+
+- [x] AES-256-GCM screenshot archive with 64 MiB cap
+- [x] Capture authenticated successful MCP Screenshot calls via JSON and SSE
+- [x] Private responsive menu, gallery, fullscreen and PNG download
+- [x] Configurable retention, clear, last-only or last-50 history
+- [x] Auto-refresh every three seconds for new AI screenshots
+- [x] Authenticated PNG routes and CSRF-protected settings
+- [ ] Fresh real Windows agent + ChatGPT MCP end-to-end screenshot validation
+- [ ] Independent continuous live video capture (future opt-in if desired)
+- [ ] Durable off-VPS history-key backup and production restore

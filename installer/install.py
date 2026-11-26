@@ -24,11 +24,13 @@ ACCOUNT = "lunexpc-gateway"
 FILES = {
     "server/gateway.py": APP_DIR / "server/gateway.py",
     "server/gateway_policy.py": APP_DIR / "server/gateway_policy.py",
+    "server/screen_history.py": APP_DIR / "server/screen_history.py",
     "server/enrollment.py": APP_DIR / "server/enrollment.py",
     "server/sealed_token.py": APP_DIR / "server/sealed_token.py",
     "server/tunnel_config.py": APP_DIR / "server/tunnel_config.py",
     "deploy/verify-gateway.sh": APP_DIR / "deploy/verify-gateway.sh",
     "panel/server.py": APP_DIR / "panel/server.py",
+    "panel/monitor_html.py": APP_DIR / "panel/monitor_html.py",
     "panel/auth.py": APP_DIR / "panel/auth.py",
     "installer/backup.py": APP_DIR / "installer/backup.py",
     "installer/install.py": APP_DIR / "installer/install.py",
@@ -86,6 +88,7 @@ def check_host():
         raise RuntimeError("Python >= 3.11 required")
     for binary in ("systemctl", "systemd-analyze", "useradd", "install", "runuser"):
         command("sh", "-c", f"command -v {binary} >/dev/null")
+    command("/usr/bin/python3", "-c", "import cryptography")
 
 
 def apply_install():

@@ -65,7 +65,7 @@ class DashboardTests(unittest.TestCase):
             self.assertIn(b"Lunex",result.read())
             conn.request("POST","/api/status")
             result=conn.getresponse()
-            self.assertEqual(result.status,405)
+            self.assertEqual(result.status,403)
             result.read()
             conn.request("GET","/random",headers={"Authorization":"Basic "+token})
             result=conn.getresponse()
