@@ -10,6 +10,7 @@ class TunnelTests(unittest.TestCase):
         result = authorized_key(KEY, 20001)
         self.assertIn('permitlisten="127.0.0.1:20001"', result)
         self.assertIn('restrict,port-forwarding', result)
+        self.assertIn('permitopen="127.0.0.1:1"',result)
         self.assertIn('command="/bin/false"', result)
     def test_ports(self):
         for port in (22, 30000, '20001', True):

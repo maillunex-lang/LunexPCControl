@@ -16,4 +16,4 @@ def authorized_key(public_key: str, port: int) -> str:
     prefix = struct.pack('>I', 11) + b'ssh-ed25519' + struct.pack('>I', 32)
     if not blob.startswith(prefix) or len(blob) != len(prefix) + 32:
         raise ValueError('invalid key blob')
-    return f'restrict,port-forwarding,permitlisten="127.0.0.1:{port}",command="/bin/false" ssh-ed25519 {fields[1]}'
+    return f'restrict,port-forwarding,permitopen="127.0.0.1:1",permitlisten="127.0.0.1:{port}",command="/bin/false" ssh-ed25519 {fields[1]}'
