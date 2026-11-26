@@ -76,3 +76,17 @@ Windows session.
 **Paths in the example are illustrative:** use the current user's
 `LocalAppData\LunexPCControl\.venv` interpreter and the repository's
 `agent/windows` scripts.
+
+## Second user on the same Windows machine
+
+The Termalin SSH shell on LUNEX runs as `maill` in Session 0, but the saved
+RDP desktop was observed as `lunexrdp` in Session 3. They are distinct
+Windows user profiles; the agent installed under `maill` does not capture
+`lunexrdp`'s desktop. Do not copy the former user's virtualenv into the
+latter profile or try to invoke an interactive screenshot from Session 0.
+
+Run `Prepare-Interactive.ps1` in the RDP user's actual desktop first. It
+only inspects account, session, and tool availability. Install Python 3.14
+for that user and run the existing audited bootstrap in that account only
+after checking the output and deciding to provision it. Starting an agent
+requires the interactive user's explicit choice and per-session credentials.
