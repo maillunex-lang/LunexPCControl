@@ -447,7 +447,8 @@ small{{color:#a7bfd2}}
                     "Content-Type": "application/json",
                     "Accept": self.headers.get("Accept", "application/json, text/event-stream"),
                 }
-                for field in ("Mcp-Protocol-Version", "Mcp-Session-Id", "Last-Event-ID"):
+                for field in ("Mcp-Protocol-Version", "Mcp-Method", "Mcp-Name",
+                              "Mcp-Session-Id", "Last-Event-ID"):
                     value = self.headers.get(field)
                     if value and len(value) < 256 and "\r" not in value and "\n" not in value:
                         headers[field] = value

@@ -22,10 +22,10 @@ PUBLIC_TOOL_DESCRIPTIONS = {
     "ControlStatus": "Report whether Windows desktop control is currently permitted (read-only).",
 }
 SAFE_METHODS = frozenset({"initialize", "notifications/initialized", "ping",
-                          "tools/list", "tools/call"})
+                          "server/discover", "tools/list", "tools/call"})
 EVENT_TYPES = frozenset({"allowed", "blocked", "invalid", "unauthorized",
                          "rate_limited", "upstream_error", "over_capacity"})
-METHOD_TYPES = frozenset({"initialize", "notification", "ping", "list",
+METHOD_TYPES = frozenset({"initialize", "discover", "notification", "ping", "list",
                           "call_screenshot", "call_status", "denied", "other"})
 
 
@@ -75,20 +75,40 @@ def inspect_request(body):
         return "notification"
     if "id" not in obj or type(obj["id"]) not in (int, str):
         raise PolicyError(400, "invalid")
-    return {"initialize": "initialize", "ping": "ping",
-            "tools/list": "list"}[method]
+    return {"initialize": "initialize", "server/discover": "discover",
+            "ping": "ping", "tools/list": "list"}[method]
 
 
 def filtered_response(body, method):
     """Show the client only the tools it is allowed to call."""
-    if method not in ("list", "initialize"):
+    if method not in ("list", "initialize", "discover"):
         return body
     try:
         doc = json.loads(body, object_pairs_hook=_unique_pairs)
         result = doc.get("result", {})
         if not isinstance(result, dict):
             raise ValueError("missing MCP result")
-        if method == "initialize":
+        if method == "discover":
+            # Modern MCP discovery is upstream-defined. Verify its shape and
+            # advertise only the negotiated 2026 version and read-only tools.
+            versions = result.get("supportedVersions")
+            capabilities = result.get("capabilities")
+            if (result.get("resultType") != "complete"
+                    or not isinstance(versions, list)
+                    or "2026-07-28" not in versions
+                    or not isinstance(capabilities, dict)
+                    or not isinstance(capabilities.get("tools"), dict)):
+                raise ValueError("invalid upstream MCP discovery")
+            doc["result"] = {
+                "resultType": "complete",
+                "supportedVersions": ["2026-07-28"],
+                "capabilities": {"tools": {}},
+                "_meta": {"io.modelcontextprotocol/serverInfo": {
+                    "name": "LunexPCControl", "version": "0.2"}},
+                "ttlMs": 300000,
+                "cacheScope": "private",
+            }
+        elif method == "initialize":
             # The gateway supports only tools; do not advertise prompts/resources,
             # unknown extensions or instructions supplied by the upstream.
             if not isinstance(result.get("protocolVersion"), str):
@@ -108,15 +128,19 @@ def filtered_response(body, method):
             if any(not isinstance(tool, dict) or not isinstance(tool.get("name"), str)
                    for tool in tools):
                 raise ValueError("invalid tool entry")
-            doc["result"] = {
-                "tools": [
-                    {"name": name,
-                     "description": PUBLIC_TOOL_DESCRIPTIONS[name],
-                     "inputSchema": PUBLIC_TOOL_SCHEMA}
-                    for name in ("Screenshot", "ControlStatus")
-                    if any(tool["name"] == name for tool in tools)
-                ]
-            }
+            filtered_tools = [
+                {"name": name,
+                 "description": PUBLIC_TOOL_DESCRIPTIONS[name],
+                 "inputSchema": PUBLIC_TOOL_SCHEMA}
+                for name in ("Screenshot", "ControlStatus")
+                if any(tool["name"] == name for tool in tools)
+            ]
+            doc["result"] = {"tools": filtered_tools}
+            if result.get("resultType") == "complete":
+                doc["result"].update({
+                    "resultType": "complete", "ttlMs": 300000,
+                    "cacheScope": "private",
+                })
         return json.dumps(doc, separators=(",", ":"), ensure_ascii=False).encode()
     except (ValueError, TypeError, AttributeError, UnicodeDecodeError) as exc:
         raise PolicyError(502, "upstream_error") from exc
@@ -124,7 +148,7 @@ def filtered_response(body, method):
 
 def filtered_sse_event(event, method):
     """Filter a complete SSE event; fail closed if a tools/list event is malformed."""
-    if method not in ("list", "initialize"):
+    if method not in ("list", "initialize", "discover"):
         return event
     # Preserve event metadata but replace JSON data; avoid writing any
     # unfiltered upstream tool descriptions to the downstream connection.

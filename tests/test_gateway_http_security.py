@@ -37,6 +37,13 @@ class UpstreamMCP(BaseHTTPRequestHandler):
         if request["method"] == "tools/list":
             result = {"tools": TOOLS, "nextCursor": "do-not-share",
                       "unexpected": "private-upstream-detail"}
+            if isinstance(request.get("params",{}).get("_meta"),dict):
+                result["resultType"]="complete"
+        elif request["method"] == "server/discover":
+            result = {"resultType":"complete","supportedVersions":["2026-07-28"],
+                      "capabilities":{"tools":{"listChanged":True},"resources":{},
+                                      "prompts":{}},
+                      "instructions":"untrusted Windows agent capability text"}
         elif request["method"] == "initialize":
             result = {"protocolVersion": "2025-06-18", "capabilities": {
                 "tools": {}, "resources": {}, "prompts": {}},
@@ -160,6 +167,58 @@ class SecurityHTTPTests(unittest.TestCase):
         self.assertEqual(json.loads(reply)["result"]["capabilities"],
                          {"tools":{}})
         self.assertNotIn("private-upstream-instructions",reply.decode())
+
+    def test_modern_chatgpt_discovery_and_tools_are_read_only(self):
+        meta={"io.modelcontextprotocol/protocolVersion":"2026-07-28",
+              "io.modelcontextprotocol/clientCapabilities":{},
+              "io.modelcontextprotocol/clientInfo":{"name":"synthetic-chatgpt",
+                                                       "version":"1"}}
+        def modern(method,params=None,header_method=None,header_name=None):
+            req={"jsonrpc":"2.0","id":101,"method":method,
+                 "params":{"_meta":meta,**(params or {})}}
+            headers={"Authorization":"Bearer "+self.token,
+                     "Content-Type":"application/json",
+                     "Accept":"application/json, text/event-stream",
+                     "Mcp-Protocol-Version":"2026-07-28",
+                     "Mcp-Method":header_method or method}
+            if header_name is not None:
+                headers["Mcp-Name"]=header_name
+            con=http.client.HTTPConnection("127.0.0.1",self.gateway.server_port,timeout=3)
+            con.request("POST","/devices/pc/mcp",body=json.dumps(req).encode(),headers=headers)
+            reply=con.getresponse()
+            result=(reply.status,reply.read())
+            con.close()
+            return result
+        def decoded(data):
+            if data.startswith(b"event:") or data.startswith(b"data:"):
+                data=next(line[5:].strip() for line in data.splitlines()
+                          if line.startswith(b"data:"))
+            return json.loads(data)
+        status,data=modern("server/discover")
+        self.assertEqual(status,200,data)
+        info=decoded(data)["result"]
+        self.assertEqual(info["supportedVersions"],["2026-07-28"])
+        self.assertEqual(info["capabilities"],{"tools":{}})
+        self.assertNotIn("untrusted Windows",str(info))
+        status,data=modern("tools/list")
+        self.assertEqual(status,200,data)
+        result=decoded(data)["result"]
+        self.assertEqual(result["resultType"],"complete")
+        self.assertEqual([x["name"] for x in result["tools"]],
+                         ["Screenshot","ControlStatus"])
+        self.assertNotIn("PowerShell",str(result))
+        status,data=modern("tools/call",{"name":"ControlStatus",
+                          "arguments":{}},header_name="ControlStatus")
+        self.assertEqual(status,200,data)
+        self.assertIn("result",decoded(data))
+        self.assertEqual(modern("tools/call",{"name":"PowerShell",
+                        "arguments":{}},header_name="PowerShell")[0],403)
+        self.assertEqual(modern("tools/call",{"name":"Screenshot",
+                        "arguments":{}},header_name="Click")[0],400)
+        self.assertEqual(modern("tools/list",header_method="tools/call")[0],400)
+        self.assertEqual(modern("resources/list")[0],403)
+        self.assertEqual([x["method"] for x in self.upstream.received],
+                         ["server/discover","tools/list","tools/call"])
 
     def test_filters_sse_tool_catalog(self):
         status, body = self.rpc("tools/list", sse=True)

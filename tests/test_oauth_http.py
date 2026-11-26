@@ -213,6 +213,26 @@ class OAuthHTTPTests(unittest.TestCase):
         self.assertEqual(status,401)
         self.assertEqual(h["WWW-Authenticate"],AUTH_CHALLENGE)
 
+    def test_oauth_bridge_preserves_modern_mcp_method_headers(self):
+        client,tokens=self.login_and_token()
+        FakeConnection.received=[]
+        modern_meta={"io.modelcontextprotocol/protocolVersion":"2026-07-28",
+                     "io.modelcontextprotocol/clientCapabilities":{}}
+        status,headers,body=self.post("/lunexpc-mcp",{
+            "jsonrpc":"2.0","id":3,"method":"tools/list",
+            "params":{"_meta":modern_meta}
+        },kind="application/json",headers={
+            "Authorization":"Bearer "+tokens["access_token"],
+            "Mcp-Protocol-Version":"2026-07-28",
+            "Mcp-Method":"tools/list",
+            "Accept":"application/json, text/event-stream",
+        })
+        self.assertEqual(status,200,body)
+        forwarded=FakeConnection.received[-1][3]
+        self.assertEqual(forwarded["Mcp-Method"],"tools/list")
+        self.assertEqual(forwarded["Mcp-Protocol-Version"],"2026-07-28")
+        self.assertNotIn(tokens["access_token"],str(forwarded))
+
     def test_legacy_alpha_key_still_permitted(self):
         status,h,body=self.post("/lunexpc-mcp",{
             "jsonrpc":"2.0","id":2,"method":"tools/list"

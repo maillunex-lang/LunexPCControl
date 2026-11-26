@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import http.client
+import json
 import re
 import secrets
 import sqlite3
@@ -24,8 +25,8 @@ MAX_BODY = 4 * 1024 * 1024
 MAX_RESPONSE = 16 * 1024 * 1024
 MCP_METHODS = frozenset({"POST", "GET", "DELETE"})
 PASSTHROUGH_HEADERS = frozenset({
-    "accept", "content-type", "mcp-protocol-version", "mcp-session-id",
-    "last-event-id",
+    "accept", "content-type", "mcp-protocol-version", "mcp-method",
+    "mcp-name", "mcp-session-id", "last-event-id",
 })
 RESPONSE_HEADERS = frozenset({
     "content-type", "mcp-protocol-version", "mcp-session-id",
@@ -251,6 +252,19 @@ def make_handler(registry, upstream_factory=http.client.HTTPConnection, *,
             if self.command == "POST":
                 try:
                     method_category = inspect_request(body)
+                    if self.headers.get("Mcp-Protocol-Version") == "2026-07-28":
+                        # Validate modern method headers against the already
+                        # authenticated and policy-checked JSON-RPC body.
+                        obj = json.loads(body)
+                        params = obj.get("params")
+                        meta = params.get("_meta") if isinstance(params, dict) else None
+                        if (not isinstance(meta, dict)
+                                or meta.get("io.modelcontextprotocol/protocolVersion") != "2026-07-28"
+                                or not isinstance(meta.get("io.modelcontextprotocol/clientCapabilities"), dict)
+                                or self.headers.get("Mcp-Method") != obj["method"]
+                                or (obj["method"] == "tools/call"
+                                    and self.headers.get("Mcp-Name") != params.get("name"))):
+                            raise PolicyError(400, "invalid")
                 except PolicyError as rejected:
                     self._respond(rejected.status, b"MCP request denied")
                     self._audit("invalid" if rejected.category == "invalid"
@@ -289,7 +303,7 @@ def make_handler(registry, upstream_factory=http.client.HTTPConnection, *,
                 if is_stream and response.status == 200:
                     # Never forward an unfiltered tool listing or capability
                     # advertisement. Accumulate only complete SSE events.
-                    filter_events = method_category in ("list", "initialize")
+                    filter_events = method_category in ("list", "initialize", "discover")
                     capture_events = capture_this_call
                     buffer_events = filter_events or capture_events
                     pending = bytearray()
@@ -345,7 +359,7 @@ def make_handler(registry, upstream_factory=http.client.HTTPConnection, *,
                     if len(output) > MAX_RESPONSE:
                         self._respond(502, b"upstream response size exceeded")
                         return
-                    if response.status == 200 and method_category in ("list", "initialize"):
+                    if response.status == 200 and method_category in ("list", "initialize", "discover"):
                         try:
                             output = filtered_response(output, method_category)
                         except PolicyError:

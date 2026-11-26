@@ -71,6 +71,27 @@ after the first click. The dedicated bridge credential remains in a private
 The legacy Alpha 0.1 API-key plugin remains compatible through the new bridge
 for clients already configured using the original Bearer key.
 
+### Modern MCP interoperability (2026-07-28)
+
+ChatGPT's current MCP client may initiate the connection using
+server/discover instead of a legacy initialize handshake. The
+read-only bridge passes Mcp-Protocol-Version, Mcp-Method, and
+Mcp-Name to the private gateway and validates modern header values
+against the JSON-RPC request. The gateway permits server/discover as a
+metadata-only request, validates the upstream discovery response, and
+publishes only its supported 2026 protocol version plus the tools
+capability. It strips prompts, resources, untrusted instructions and
+unapproved Windows capabilities. tools/list still exposes exactly
+Screenshot and ControlStatus; tools/call remains fail-closed for
+all other methods and for nonempty arguments. The private gateway's
+audit log uses fixed categories and does not record credentials or
+client-supplied payloads. Legacy initialize and token handling remain
+available for backwards compatibility.
+
+A real ChatGPT refresh and tool invocation is required to verify the
+production OpenAI client after deployment. Synthetic protocol and
+OAuth tests do not prove the hosted application has refreshed yet.
+
 ### Important security boundaries
 
 - No OAuth token grants mouse, keyboard, shell, file management or privilege.
