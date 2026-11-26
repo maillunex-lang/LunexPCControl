@@ -2,10 +2,13 @@
 [CmdletBinding()]
 param(
     [switch]$Install,
-    [string]$BootstrapPath = (Join-Path $PSScriptRoot 'Bootstrap.ps1')
+    [string]$BootstrapPath = ''
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+if (-not $BootstrapPath) {
+    $BootstrapPath = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) 'Bootstrap.ps1'
+}
 $user = [Security.Principal.WindowsIdentity]::GetCurrent().Name
 $session = [Diagnostics.Process]::GetCurrentProcess().SessionId
 $interactive = [Environment]::UserInteractive -and $session -gt 0

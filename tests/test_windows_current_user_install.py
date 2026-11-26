@@ -15,6 +15,10 @@ class CurrentUserTests(unittest.TestCase):
     def test_no_autostart_or_firewall(self):
         for v in ('schtasks', 'New-NetFirewallRule', 'netsh', 'Set-ItemProperty', 'runas'):
             self.assertNotIn(v, self.source)
+    def test_compat_path_resolution(self):
+        self.assertIn("BootstrapPath = ''", self.source)
+        self.assertIn('$MyInvocation.MyCommand.Path', self.source)
+
     def test_python_scope(self):
         self.assertIn('--scope user', self.source)
         self.assertIn('Python.Python.3.14', self.source)
