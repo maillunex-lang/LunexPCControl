@@ -38,6 +38,13 @@ Issuer: https://rikagro.ru
 Resource: https://rikagro.ru/lunexpc-mcp
 Scope: desktop:read (Screenshot, ControlStatus only)
 Code challenge method: S256
+RFC 9207: OAuth discovery advertises `authorization_response_iss_parameter_supported: true`;
+issued authorization responses include an exact `iss=https://rikagro.ru`.
+When issuer identification is advertised, ChatGPT can select its stable
+`https://chatgpt.com/connector_platform_oauth_redirect` callback. Previously
+registered per-connection callback URLs remain allowlisted and require an exact
+match. A reconnect may be needed for ChatGPT to re-read discovery and choose
+its preferred callback for a new link.
 Public clients: ChatGPT HTTPS callback paths only, exact redirect matching.
 Tokens: 1-hour access, 30-day refresh; refresh is single-use and rotates.
 Authorization codes: 2 minutes, single-use; owner approval valid 5 minutes.

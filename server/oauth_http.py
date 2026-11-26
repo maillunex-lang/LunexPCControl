@@ -35,6 +35,9 @@ MAX_MCP = 131072
 MAX_RESPONSE = 16 * 1024 * 1024
 METADATA = {
     "issuer": ISSUER,
+    # RFC 9207: every issued authorization redirect carries the matching iss.
+    # Enables the stable ChatGPT connector callback for new connections.
+    "authorization_response_iss_parameter_supported": True,
     "authorization_endpoint": ISSUER + "/oauth/authorize",
     "token_endpoint": ISSUER + "/oauth/token",
     "registration_endpoint": ISSUER + "/oauth/register",

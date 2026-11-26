@@ -128,6 +128,33 @@ class OAuthHTTPTests(unittest.TestCase):
         self.assertEqual(status,200,body)
         return client,json.loads(body)
 
+    def test_chatgpt_specific_callback_receives_issuer_and_state(self):
+        client=self.store.register({
+            "client_name":"ChatGPT",
+            "redirect_uris":["https://chatgpt.com/connector/oauth/abcDEF123456"],
+            "token_endpoint_auth_method":"none",
+        })["client_id"]
+        q=urlencode({"response_type":"code","client_id":client,
+                     "redirect_uri":"https://chatgpt.com/connector/oauth/abcDEF123456",
+                     "state":"opaque-original-state","resource":RESOURCE,"scope":"desktop:read",
+                     "code_challenge_method":"S256","code_challenge":CHALLENGE})
+        status,headers,page=self.request("GET","/oauth/authorize?"+q)
+        self.assertEqual(status,200)
+        form={
+            "request_id":re.search(rb'name="request_id" value="([^"]+)"',page).group(1).decode(),
+            "csrf":re.search(rb'name="csrf" value="([^"]+)"',page).group(1).decode(),
+            "password":self.owner_password
+        }
+        status,response,_=self.post("/oauth/approve",form,headers={
+            "Cookie":headers["Set-Cookie"].split(";",1)[0],
+            "Origin":"https://rikagro.ru"})
+        self.assertEqual(status,303)
+        url=urlsplit(response["Location"])
+        self.assertEqual(url.path,"/connector/oauth/abcDEF123456")
+        params=parse_qs(url.query)
+        self.assertEqual(params["state"],["opaque-original-state"])
+        self.assertEqual(params["iss"],["https://rikagro.ru"])
+
     def test_protected_resource_and_as_discovery(self):
         for path in ("/.well-known/oauth-protected-resource",
                      "/.well-known/oauth-protected-resource/lunexpc-mcp"):
@@ -138,6 +165,7 @@ class OAuthHTTPTests(unittest.TestCase):
         self.assertEqual(status,200)
         metadata=json.loads(body)
         self.assertEqual(metadata, METADATA)
+        self.assertIs(metadata["authorization_response_iss_parameter_supported"],True)
         self.assertEqual(metadata["code_challenge_methods_supported"],["S256"])
         self.assertEqual(metadata["token_endpoint_auth_methods_supported"],["none"])
 
