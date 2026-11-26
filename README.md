@@ -1,12 +1,61 @@
 # Lunex PC Control
 
-Self-hosted MCP bridge for authorized Windows desktop and development workflows.
+**Self-hosted Windows control bridge for ChatGPT, with a private Linux VPS
+gateway and an outbound SSH tunnel.** The default policy exposes only
+read-only desktop Screenshot and ControlStatus.
 
-Status: prototype. Live Windows-MCP screenshot test passed locally in an interactive Windows session; **no deployable remote service or complete HTTPS/tunnel integration yet**.
+## What works
 
-## Target architecture
-ChatGPT private plugin -> authenticated HTTPS MCP gateway on a Linux VPS -> authenticated outbound tunnel -> Windows desktop agent.
+- Windows-MCP 0.9.0 under an interactive Windows session with native
+  user consent, pinned SSH host key and isolated Python environment.
+- A real PNG screenshot was successfully returned through the full path:
+  Windows-MCP -> outbound SSH reverse tunnel -> authenticated VPS
+  gateway -> MCP client.
+- Gateway runs under a dedicated unprivileged systemd account,
+  with a private SQLite registry, token validation, tool allowlisting,
+  rate limiting, audit logging and log rotation.
+- A private, responsive, **read-only HTML dashboard** shows sanitized
+  device/client counts and recent audit events on 127.0.0.1:18881.
+- Complete first-party source, Windows scripts, tests, installer,
+  deployment templates and the unmodified MIT-licensed Windows-MCP
+  upstream source are preserved in this repository.
 
-Target: portable single-command VPS installation, separate Windows enrollment, no public RDP or unauthenticated MCP ports. Upstream: CursorTouch/Windows-MCP at audited pinned commit. A local screenshot test was performed with the screenshot-only tool and upstream control-consent mechanism. The HTTPS gateway and complete end-to-end authorization are not deployed. A supervised SSH reverse tunnel and real Windows-MCP screenshot through the authenticated VPS gateway have passed end-to-end tests and been shut down.
+**Current stage: prototype.** The public HTTPS MCP route is intentionally
+closed. ChatGPT plugin login, unattended Windows lifecycle, production
+backup/upgrade and external security review are not complete.
 
-See [roadmap](docs/ROADMAP.md).
+## Portable VPS install
+
+A single bootstrap command can install a NEW Ubuntu 24.04/26.04 VPS from
+a full immutable Git commit. Substitute a reviewed full commit SHA:
+
+    curl -fsSL https://raw.githubusercontent.com/maillunex-lang/LunexPCControl/main/installer/bootstrap.sh | sudo bash -s -- --ref FULL_COMMIT_SHA --apply
+
+For an initial inspection, leave off the --apply flag. No existing
+deployment is overwritten. The installer does not touch nginx,
+firewall, sshd or other applications and does not automatically start,
+enable or publicly expose either service.
+
+After review, you may start the gateway and optional dashboard manually:
+
+    sudo systemctl start lunexpc-gateway.service
+    sudo systemctl start lunexpc-panel.service
+
+See [portable installation guide](docs/PORTABLE-INSTALL.md) and
+[gateway operations](docs/GATEWAY-OPS.md) for limits, audit and rollback.
+The installer has NOT yet been exercised on a second clean VPS.
+
+## Source and third-party software
+
+The complete MIT-licensed CursorTouch/Windows-MCP source snapshot is
+preserved under vendor/windows-mcp at commit
+3333dbdac75ea3cae2a1eea00dccb207db9c5e4d,
+along with its original LICENSE.md and a SHA-256 file manifest.
+The Windows bootstrap uses the bundled copy when run from a full checkout.
+Package dependencies still require pip downloads; offline wheel caching
+is a planned release feature.
+
+## Roadmap
+
+See [roadmap](docs/ROADMAP.md), [end-to-end verification](docs/E2E-VALIDATION.md)
+and [HTTPS security gates](docs/HTTPS.md).

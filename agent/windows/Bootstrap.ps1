@@ -72,9 +72,26 @@ if (-not $state.ReadyToInstall) {
 }
 $repoDir = Join-Path $InstallRoot "upstream"
 $venvDir = Join-Path $InstallRoot ".venv"
+$sourceRoot = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
+$bundledRepo = Join-Path $sourceRoot 'vendor\windows-mcp'
+$bundledMarker = Join-Path $sourceRoot 'vendor\WINDOWS-MCP-COMMIT.txt'
+
 if ($Install) {
     New-Item -ItemType Directory -Path $InstallRoot -Force | Out-Null
-    if (Test-Path $repoDir) {
+    $packageSource = $repoDir
+    if (Test-Path -LiteralPath (Join-Path $bundledRepo 'pyproject.toml') -PathType Leaf) {
+        if (-not (Test-Path -LiteralPath $bundledMarker -PathType Leaf)) {
+            throw 'Bundled Windows-MCP commit marker missing'
+        }
+        if ((Get-Content -LiteralPath $bundledMarker -Raw).Trim() -ne $UpstreamCommit) {
+            throw 'Bundled Windows-MCP source revision mismatch'
+        }
+        if (-not (Test-Path -LiteralPath (Join-Path $bundledRepo 'LICENSE.md') -PathType Leaf)) {
+            throw 'Bundled upstream MIT license missing'
+        }
+        $packageSource = $bundledRepo
+        Write-Output 'Installing Windows-MCP from bundled, pinned source.'
+    } elseif (Test-Path $repoDir) {
         if (-not (Test-Path (Join-Path $repoDir '.git'))) {
             throw "Unexpected existing folder at $repoDir; refusing to overwrite it."
         }
@@ -86,17 +103,19 @@ if ($Install) {
         $clone = Start-Process -FilePath (Get-Command git).Source -ArgumentList @('clone', '--no-checkout', '--', $UpstreamRepository, $repoDir) -NoNewWindow -Wait -PassThru
         if ($clone.ExitCode -ne 0) { throw 'Clone failed' }
     }
-    $head = (& git -C $repoDir rev-parse HEAD)
-    if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect checkout HEAD' }
-    if ($head -ne $UpstreamCommit) {
-        # Use -q to avoid informational native stderr that PS 5.1 treats as a terminating error.
-        & git -C $repoDir -c advice.detachedHead=false checkout -q --detach $UpstreamCommit
-        if ($LASTEXITCODE -ne 0) { throw 'Pinned checkout failed' }
+    if ($packageSource -eq $repoDir) {
+        $head = (& git -C $repoDir rev-parse HEAD)
+        if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect checkout HEAD' }
+        if ($head -ne $UpstreamCommit) {
+            # Use -q to avoid informational native stderr that PS 5.1 treats as a terminating error.
+            & git -C $repoDir -c advice.detachedHead=false checkout -q --detach $UpstreamCommit
+            if ($LASTEXITCODE -ne 0) { throw 'Pinned checkout failed' }
+        }
     }
     & $state.PythonExecutable -m venv $venvDir
     if ($LASTEXITCODE -ne 0) { throw 'Virtualenv creation failed' }
     $pip = Join-Path $venvDir "Scripts\python.exe"
-    & $pip -m pip install --disable-pip-version-check $repoDir
+    & $pip -m pip install --disable-pip-version-check $packageSource
     if ($LASTEXITCODE -ne 0) { throw 'Isolated package installation failed' }
     Write-Output "Installed isolated agent dependencies at $InstallRoot"
 }

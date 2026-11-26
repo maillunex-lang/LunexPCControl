@@ -1,0 +1,716 @@
+"""Small, click-through Win32 indicators for an active AI desktop lease.
+
+The display thread owns every HWND. Calls from MCP threads change desired state
+and wait for an acknowledgement, so a screenshot cannot race a visible frame.
+"""
+
+from collections.abc import Callable
+from contextlib import contextmanager
+import ctypes
+import logging
+import threading
+import time
+from ctypes import wintypes
+
+from windows_mcp.desktop import flash_overlay
+from windows_mcp.desktop.control_overlay_art import (
+    _BORDER,
+    _CURSOR_SIZE,
+    _NOTICE_GLOW_PAD,
+    _RIPPLE_FRAMES,
+    _RIPPLE_SIZE,
+    _breath_opacity,
+    _cursor_bitmap,
+    _edge_bitmap,
+    _notice_bitmap,
+    _notice_glow_bitmap,
+    _ripple_frames,
+)
+from windows_mcp import uia
+
+logger = logging.getLogger(__name__)
+
+_REFRESH_SECONDS = 0.05
+_ACK_TIMEOUT_SECONDS = 3.0
+_RIPPLE_SECONDS = 0.45
+_SW_HIDE = 0
+_WDA_EXCLUDEFROMCAPTURE = 0x00000011
+_BLUE = (45, 145, 255)
+_AMBER = (255, 170, 55)
+
+_user32 = ctypes.windll.user32
+# wintypes.POINT, not flash_overlay._POINT: ctypes.windll caches one user32 object per
+# process, so this argtypes is process-global. Declaring a private struct here broke
+# every other GetCursorPos caller in the process (uia.core passes wintypes.POINT),
+# which broke Screenshot/Snapshot cursor tracking with
+# "expected LP__POINT instance instead of pointer to POINT".
+_user32.GetCursorPos.argtypes = [ctypes.POINTER(wintypes.POINT)]
+_user32.GetCursorPos.restype = wintypes.BOOL
+_user32.SetWindowDisplayAffinity.argtypes = [wintypes.HWND, wintypes.DWORD]
+_user32.SetWindowDisplayAffinity.restype = wintypes.BOOL
+_user32.IsWindowVisible.argtypes = [wintypes.HWND]
+_user32.IsWindowVisible.restype = wintypes.BOOL
+# Private DLL objects: argtypes on ctypes.windll.user32 would be process-global.
+_wait_user32 = ctypes.WinDLL("user32", use_last_error=True)
+_wait_user32.MsgWaitForMultipleObjectsEx.argtypes = [
+    wintypes.DWORD,
+    ctypes.POINTER(wintypes.HANDLE),
+    wintypes.DWORD,
+    wintypes.DWORD,
+    wintypes.DWORD,
+]
+_wait_user32.MsgWaitForMultipleObjectsEx.restype = wintypes.DWORD
+_kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+_kernel32.CreateEventW.argtypes = [ctypes.c_void_p, wintypes.BOOL, wintypes.BOOL, wintypes.LPCWSTR]
+_kernel32.CreateEventW.restype = wintypes.HANDLE
+_kernel32.SetEvent.argtypes = [wintypes.HANDLE]
+_kernel32.SetEvent.restype = wintypes.BOOL
+_kernel32.CloseHandle.argtypes = [wintypes.HANDLE]
+_kernel32.CloseHandle.restype = wintypes.BOOL
+_INFINITE = 0xFFFFFFFF
+_QS_ALLINPUT = 0x04FF  # Includes sent messages, so broadcasts to hidden layers never hang.
+_PING_SECONDS = 1.0
+
+
+class _Layer:
+    def __init__(
+        self,
+        x: int,
+        y: int,
+        width: int,
+        height: int,
+        bgra: bytes,
+        name: str,
+        *,
+        breathes: bool = True,
+    ):
+        self.x, self.y, self.width, self.height = x, y, width, height
+        self.breathes = breathes
+        self.class_name = f"WindowsMCPControl_{name}_{id(self):x}"
+        self.hwnd, self.instance = flash_overlay._create_layered_window(
+            self.class_name, x, y, width, height
+        )
+        self.bgra = bgra
+        self.opacity: int | None = None
+        try:
+            flash_overlay._push_bitmap(self.hwnd, x, y, width, height, bgra)
+            if not _user32.SetWindowDisplayAffinity(self.hwnd, _WDA_EXCLUDEFROMCAPTURE):
+                # Own screenshots are protected by suspend_for_capture. Affinity
+                # varies by Windows compositor and only affects other capturers.
+                logger.warning("display affinity unavailable for AI control indicator")
+        except BaseException:
+            self.close()
+            raise
+
+    def set_opacity(self, opacity: int) -> None:
+        """Modulate an existing bitmap without rebuilding its per-pixel glow."""
+        if self.opacity == opacity:
+            return
+        # Use the bitmap API for every frame. SetLayeredWindowAttributes can
+        # report success here while replacing the visible per-pixel bitmap.
+        flash_overlay._push_bitmap(
+            self.hwnd, self.x, self.y, self.width, self.height, self.bgra, opacity=opacity
+        )
+        self.opacity = opacity
+
+    def show(self) -> None:
+        _user32.ShowWindow(self.hwnd, flash_overlay._SW_SHOWNA)
+        if not _user32.SetWindowPos(
+            self.hwnd,
+            flash_overlay._HWND_TOPMOST,
+            0,
+            0,
+            0,
+            0,
+            flash_overlay._SWP_NOSIZE
+            | flash_overlay._SWP_NOMOVE
+            | flash_overlay._SWP_NOACTIVATE
+            | flash_overlay._SWP_SHOWWINDOW,
+        ) or not _user32.IsWindowVisible(self.hwnd):
+            raise RuntimeError("AI control indicator window could not be shown")
+
+    def draw(self, bgra: bytes, x: int, y: int) -> None:
+        """Replace the bitmap and position in one update, for animation frames."""
+        flash_overlay._push_bitmap(self.hwnd, x, y, self.width, self.height, bgra)
+        self.x, self.y, self.bgra, self.opacity = x, y, bgra, 255
+
+    def hide(self) -> None:
+        _user32.ShowWindow(self.hwnd, _SW_HIDE)
+        if _user32.IsWindowVisible(self.hwnd):
+            raise RuntimeError("AI control indicator window could not be hidden")
+
+    def move(self, x: int, y: int) -> None:
+        if (x, y) == (self.x, self.y):
+            return
+        if not _user32.SetWindowPos(
+            self.hwnd,
+            flash_overlay._HWND_TOPMOST,
+            x,
+            y,
+            0,
+            0,
+            flash_overlay._SWP_NOSIZE | flash_overlay._SWP_NOACTIVATE,
+        ):
+            raise RuntimeError("AI control cursor indicator could not move")
+        self.x, self.y = x, y
+
+    def close(self) -> None:
+        if self.hwnd:
+            _user32.DestroyWindow(self.hwnd)
+            _user32.UnregisterClassW(self.class_name, self.instance)
+            self.hwnd = None
+
+
+def _monitor_rects() -> tuple[tuple[int, int, int, int], ...]:
+    return tuple((r.left, r.top, r.right, r.bottom) for r in uia.GetMonitorsRect())
+
+
+def _build_layers(
+    rects: tuple[tuple[int, int, int, int], ...],
+    pending: bool,
+    beat: Callable[[], None] | None = None,
+    notice: bool = True,
+) -> tuple[list[_Layer], _Layer]:
+    """Build the indicator layers; *beat* is called after each layer is made.
+
+    Rendering the bitmaps for very wide desktops can take longer than the
+    watchdog's one-second heartbeat window, so the caller passes a heartbeat
+    refresh to show the thread is still making progress.
+    """
+    if not rects:
+        raise RuntimeError("no display available for AI control indicator")
+    color = _AMBER if pending else _BLUE
+    layers: list[_Layer] = []
+    try:
+        for index, (left, top, right, bottom) in enumerate(rects):
+            width, height = right - left, bottom - top
+            if width <= 0 or height <= 0:
+                raise RuntimeError("invalid display geometry for AI control indicator")
+            border = min(_BORDER, width // 2, height // 2)
+            if border <= 0:
+                raise RuntimeError("display too small for AI control indicator")
+            strips = (
+                (left, top, width, border, "top"),
+                (left, bottom - border, width, border, "bottom"),
+                # The horizontal bitmaps include corner glow, leaving these
+                # vertical strips separate so corners are not blended twice.
+                (left, top + border, border, height - 2 * border, "left"),
+                (right - border, top + border, border, height - 2 * border, "right"),
+            )
+            for x, y, w, h, side in strips:
+                if w and h:
+                    layers.append(
+                        _Layer(x, y, w, h, _edge_bitmap(w, h, side, color), f"{index}_{side}")
+                    )
+                    if beat is not None:
+                        beat()
+            banner = _notice_bitmap(width) if notice else None
+            if banner is not None:
+                notice_width, notice_height, bitmap = banner
+                # Narrow monitors retain the aura without letting its window spill onto a neighbor.
+                glow_pad = min(_NOTICE_GLOW_PAD, (width - notice_width) // 2)
+                if height <= border + notice_height + 2 * glow_pad:
+                    continue
+                notice_x = left + (width - notice_width) // 2
+                notice_y = top + border + glow_pad
+                layers.append(
+                    _Layer(
+                        notice_x - glow_pad,
+                        notice_y - glow_pad,
+                        notice_width + 2 * glow_pad,
+                        notice_height + 2 * glow_pad,
+                        _notice_glow_bitmap(notice_width, notice_height, color, glow_pad),
+                        f"{index}_notice_glow",
+                    )
+                )
+                layers.append(
+                    _Layer(
+                        notice_x,
+                        notice_y,
+                        notice_width,
+                        notice_height,
+                        bitmap,
+                        f"{index}_notice",
+                        breathes=False,
+                    )
+                )
+                if beat is not None:
+                    beat()
+        point = wintypes.POINT()
+        if not _user32.GetCursorPos(ctypes.byref(point)):
+            raise RuntimeError("cannot locate cursor for AI control indicator")
+        ring = _Layer(
+            point.x - _CURSOR_SIZE // 2,
+            point.y - _CURSOR_SIZE // 2,
+            _CURSOR_SIZE,
+            _CURSOR_SIZE,
+            _cursor_bitmap(color),
+            "cursor",
+        )
+        return layers, ring
+    except BaseException:
+        for layer in reversed(layers):
+            layer.close()
+        raise
+
+
+class _WakingCondition(threading.Condition):
+    """A condition whose notifications also end the owner's Win32 message wait."""
+
+    def __init__(self, wake: Callable[[], None]) -> None:
+        super().__init__()
+        self._wake = wake
+
+    def notify(self, n: int = 1) -> None:
+        super().notify(n)
+        self._wake()
+
+    def notify_all(self) -> None:
+        super().notify_all()
+        self._wake()
+
+
+class _Indicator:
+    def __init__(self) -> None:
+        # The owner thread parks in MsgWaitForMultipleObjectsEx on this event
+        # (created and closed by that thread) whenever nothing is shown.
+        self._wake_event: int | None = None
+        self._wake_lock = threading.Lock()
+        self.condition = _WakingCondition(self._signal)
+        self.thread = threading.Thread(
+            target=self._run, name="windows-mcp-control-indicator", daemon=True
+        )
+        self.active = False
+        self.pending = False
+        self.consent = False
+        self.ripple: tuple[int, int] | None = None
+        self.suspended = 0
+        self.stopping = False
+        self.version = 0
+        self.applied = 0
+        self.generation = -1
+        self.error: BaseException | None = None
+        # A missed ack is not a dead thread. Health stays false until a later
+        # apply, but change() may try again instead of failing forever.
+        self.missed_ack = False
+        self.heartbeat = 0.0
+        # Parked owners do not beat; they prove liveness by answering a ping.
+        self.idle = False
+        self.ping_at = 0.0
+        self.started = threading.Event()
+
+    def start(self) -> None:
+        self.thread.start()
+        if not self.started.wait(timeout=3.0):
+            raise RuntimeError("AI control indicator thread did not start")
+        if self.error or not self.thread.is_alive():
+            raise RuntimeError("AI control indicator thread failed at startup") from self.error
+
+    def change(
+        self,
+        *,
+        active: bool | None = None,
+        pending: bool | None = None,
+        consent: bool | None = None,
+        suspended: int = 0,
+        generation: int | None = None,
+    ) -> bool:
+        with self.condition:
+            # A newer takeover can hide immediately while an older AI show
+            # waits behind screenshot capture. Never apply that stale show.
+            if generation is not None and generation < self.generation:
+                return False
+            if self.stopping:
+                raise RuntimeError("AI control indicator is stopping")
+            if self.error:
+                raise RuntimeError("AI control indicator failed") from self.error
+            if not self.thread.is_alive():
+                raise RuntimeError("AI control indicator stopped")
+            prior_active = self.active
+            prior_pending = self.pending
+            prior_consent = self.consent
+            prior_suspended = self.suspended
+            if generation is not None:
+                self.generation = generation
+            if active is not None:
+                self.active = active
+            if pending is not None:
+                self.pending = pending
+            if consent is not None:
+                self.consent = consent
+            self.suspended += suspended
+            if self.suspended < 0:
+                self.suspended = 0
+                raise RuntimeError("unbalanced screenshot indicator suspension")
+            self.version += 1
+            version = self.version
+            self.condition.notify_all()
+            if not self.condition.wait_for(
+                lambda: (
+                    self.applied >= version
+                    or self.stopping
+                    or self.error is not None
+                    or not self.thread.is_alive()
+                ),
+                timeout=_ACK_TIMEOUT_SECONDS,
+            ):
+                # This attempt did not ack, so the caller must not grant a lease.
+                # Drop the unacked request if it is still the latest one, and
+                # leave the thread runnable for a later change().
+                requested_active = self.active
+                requested_pending = self.pending
+                requested_generation = self.generation
+                if self.version == version:
+                    self.active = prior_active
+                    self.pending = prior_pending
+                    self.consent = prior_consent
+                    self.suspended = prior_suspended
+                    # Bump the version so the owner redraws the restored state and a late apply
+                    # of the dropped request is never taken as its ack.
+                    self.version += 1
+                self.missed_ack = True
+                self.condition.notify_all()
+                raise RuntimeError(
+                    "AI control indicator did not acknowledge state change "
+                    f"(active={requested_active}, pending={requested_pending}, "
+                    f"generation={requested_generation}, version={version})"
+                )
+            if self.stopping:
+                raise RuntimeError("AI control indicator is stopping")
+            if self.error:
+                raise RuntimeError("AI control indicator failed") from self.error
+            if self.applied >= version:
+                self.missed_ack = False
+            return True
+
+    def stop(self) -> None:
+        with self.condition:
+            self.stopping = True
+            self.condition.notify_all()
+        if self.thread.is_alive():
+            self.thread.join(timeout=3.0)
+        if self.thread.is_alive():
+            raise RuntimeError("AI control indicator did not stop")
+
+    def _signal(self) -> None:
+        """Wake the parked owner thread; never blocks on the owner."""
+        if threading.current_thread() is self.thread:
+            return  # The owner's own acks must not cut its next wait short.
+        with self._wake_lock:
+            if self._wake_event:
+                _kernel32.SetEvent(self._wake_event)
+
+    def ping(self) -> None:
+        """Ask a parked owner to wake once and refresh its heartbeat."""
+        self.ping_at = time.monotonic()
+        self._signal()
+
+    def _park(self, timeout: float | None) -> None:
+        """Wait for a state change, a ping, a window message, or *timeout*."""
+        handle = wintypes.HANDLE(self._wake_event)
+        milliseconds = _INFINITE if timeout is None else max(0, int(timeout * 1000))
+        self.idle = timeout is None
+        try:
+            _wait_user32.MsgWaitForMultipleObjectsEx(
+                1, ctypes.byref(handle), milliseconds, _QS_ALLINPUT, 0
+            )
+        finally:
+            # Beat before clearing idle: is_healthy reads idle first, then the beat.
+            self.heartbeat = time.monotonic()
+            self.idle = False
+
+    def _beat(self) -> None:
+        # A float store is atomic; the watchdog only reads it.
+        self.heartbeat = time.monotonic()
+
+    def _run(self) -> None:
+        layers: list[_Layer] = []
+        ring: _Layer | None = None
+        ripple_layer: _Layer | None = None
+        ripple_frames: list[bytes] = []
+        ripple_point = (0, 0)
+        ripple_start: float | None = None
+        ripple_shown = False
+        rects: tuple[tuple[int, int, int, int], ...] = ()
+        mode: tuple[bool, bool] | None = None
+        visible = False
+        was_shown = False
+        breath_started = 0.0
+        try:
+            wake = _kernel32.CreateEventW(None, False, False, None)
+            if not wake:
+                raise ctypes.WinError(ctypes.get_last_error())
+            with self._wake_lock:
+                self._wake_event = wake
+            self.heartbeat = time.monotonic()
+            self.started.set()
+            while True:
+                with self.condition:
+                    if self.stopping:
+                        return
+                    active, pending = self.active, self.pending
+                    suspended, version = self.suspended, self.version
+                    # A consent prompt shows amber edges alone; its dialog explains them.
+                    shown = active or self.consent
+                    amber = pending or not active
+                    ripple, self.ripple = self.ripple, None
+                if shown:
+                    if not was_shown:
+                        breath_started = time.monotonic()
+                    current_rects = _monitor_rects()
+                    if ring is None or current_rects != rects or mode != (amber, active):
+                        for layer in reversed(layers):
+                            layer.close()
+                        layers = []
+                        if ring:
+                            ring.close()
+                            ring = None
+                        layers, ring = _build_layers(
+                            current_rects, amber, beat=self._beat, notice=active
+                        )
+                        rects, mode = current_rects, (amber, active)
+                        visible = False
+                    if suspended:
+                        if visible:
+                            for layer in layers:
+                                layer.hide()
+                            ring.hide()
+                            visible = False
+                    else:
+                        opacity = _breath_opacity(time.monotonic() - breath_started)
+                        for layer in layers:
+                            if layer.breathes:
+                                layer.set_opacity(opacity)
+                        if not amber:
+                            ring.set_opacity(opacity)
+                        if not visible:
+                            for layer in layers:
+                                layer.show()
+                            if not amber:
+                                ring.show()
+                            visible = True
+                        if not amber:
+                            point = wintypes.POINT()
+                            if _user32.GetCursorPos(ctypes.byref(point)):
+                                ring.move(point.x - _CURSOR_SIZE // 2, point.y - _CURSOR_SIZE // 2)
+                        else:
+                            ring.hide()
+                elif visible:
+                    for layer in layers:
+                        layer.hide()
+                    if ring:
+                        ring.hide()
+                    visible = False
+                if ripple is not None:
+                    ripple_point, ripple_start = ripple, time.monotonic()
+                frame = -1
+                if ripple_start is not None and visible and not amber:
+                    elapsed = time.monotonic() - ripple_start
+                    frame = int(elapsed / _RIPPLE_SECONDS * _RIPPLE_FRAMES)
+                if 0 <= frame < _RIPPLE_FRAMES:
+                    if ripple_layer is None:
+                        ripple_frames = _ripple_frames(_BLUE)
+                        ripple_layer = _Layer(
+                            0, 0, _RIPPLE_SIZE, _RIPPLE_SIZE, ripple_frames[0], "ripple"
+                        )
+                    ripple_layer.draw(
+                        ripple_frames[frame],
+                        ripple_point[0] - _RIPPLE_SIZE // 2,
+                        ripple_point[1] - _RIPPLE_SIZE // 2,
+                    )
+                    if not ripple_shown:
+                        ripple_layer.show()
+                        ripple_shown = True
+                else:
+                    ripple_start = None
+                    if ripple_shown:
+                        ripple_layer.hide()
+                        ripple_shown = False
+                was_shown = shown
+                # Pump messages on the owning thread, including display events.
+                for layer in layers:
+                    flash_overlay._pump_messages(layer.hwnd)
+                if ring:
+                    flash_overlay._pump_messages(ring.hwnd)
+                if ripple_layer:
+                    flash_overlay._pump_messages(ripple_layer.hwnd)
+                with self.condition:
+                    self.heartbeat = time.monotonic()
+                    self.applied = version
+                    # The timed-out caller already failed. Once the latest state
+                    # is on screen, a later attempt may take a lease again.
+                    if self.missed_ack and version >= self.version:
+                        self.missed_ack = False
+                    self.condition.notify_all()
+                # Animate at the refresh rate only while something is on screen;
+                # otherwise park until a change, a ping, or a window message.
+                self._park(_REFRESH_SECONDS if shown or ripple_start is not None else None)
+        except BaseException as exc:
+            logger.exception("AI control indicator failed")
+            with self.condition:
+                self.error = exc
+                self.condition.notify_all()
+        finally:
+            self.started.set()
+            for layer in reversed(layers):
+                layer.close()
+            if ring:
+                ring.close()
+            if ripple_layer:
+                ripple_layer.close()
+            with self._wake_lock:
+                wake, self._wake_event = self._wake_event, None
+            if wake:
+                _kernel32.CloseHandle(wake)
+
+
+_lock = threading.Lock()
+_capture_lock = threading.RLock()
+_instance: _Indicator | None = None
+
+
+def start() -> None:
+    """Start the window owner thread, without displaying AI control yet."""
+    global _instance
+    with _capture_lock:
+        with _lock:
+            current = _instance
+            if current is None:
+                # Retain the reference before starting: a failed startup may
+                # leave a live thread that must be stopped before retrying.
+                indicator = _Indicator()
+                _instance = indicator
+            else:
+                indicator = current
+        if current is not None:
+            if not is_healthy() or indicator.stopping:
+                raise RuntimeError("Existing AI control indicator requires stop before restart")
+            return
+        try:
+            indicator.start()
+        except BaseException as startup_error:
+            try:
+                indicator.stop()
+            except BaseException as cleanup_error:
+                # A later stop() can retry the join; never stack a new HWND
+                # owner on top of a potentially live failed one.
+                raise RuntimeError(
+                    "AI control indicator startup failed; cleanup is pending"
+                ) from cleanup_error
+            with _lock:
+                if _instance is indicator:
+                    _instance = None
+            raise startup_error
+
+
+def stop() -> None:
+    """Destroy all indication windows and join the owner thread."""
+    global _instance
+    with _capture_lock:
+        with _lock:
+            indicator = _instance
+        if indicator:
+            indicator.stop()
+            # The thread has exited and destroyed its windows. Only now may a
+            # future start allocate another owner thread.
+            with _lock:
+                if _instance is indicator:
+                    _instance = None
+
+
+def set_active(active: bool, *, generation: int | None = None) -> bool:
+    """Display or hide AI indication; activation failure raises."""
+
+    # Deactivation must remain immediate during a capture: the screenshot's
+    # final resume will then observe active=False and leave the window hidden.
+    def apply() -> bool:
+        with _lock:
+            indicator = _instance
+        if indicator is None:
+            if not active:
+                return True
+            raise RuntimeError("AI control indicator has not started")
+        return indicator.change(active=active, pending=False, generation=generation)
+
+    if active:
+        with _capture_lock:
+            return apply()
+    return apply()
+
+
+def set_pending(pending: bool, *, generation: int | None = None) -> bool:
+    """Use amber edge indication without cursor following during takeover check."""
+    with _capture_lock:
+        with _lock:
+            indicator = _instance
+        if indicator:
+            return indicator.change(pending=pending, generation=generation)
+    return True
+
+
+def set_consent(consent: bool) -> bool:
+    """Show amber edges, without notice or cursor glow, while consent is asked."""
+    with _capture_lock:
+        with _lock:
+            indicator = _instance
+        if indicator:
+            return indicator.change(consent=consent)
+    return True
+
+
+def ripple(x: int, y: int) -> None:
+    """Mark an AI click; never waits, and does nothing unless AI control shows."""
+    with _lock:
+        indicator = _instance
+    if indicator:
+        with indicator.condition:
+            indicator.ripple = (x, y)
+            indicator.condition.notify_all()
+
+
+def is_healthy() -> bool:
+    """Reject an alive but stalled window owner after one second.
+
+    A drawing owner beats at the refresh rate. A parked owner (nothing shown)
+    does not, so an old beat then sends a ping, and the owner is unhealthy only
+    if a ping goes unanswered for a second.
+    """
+    with _lock:
+        indicator = _instance
+    # missed_ack stays set until the owner applies a later state. A fresh
+    # heartbeat alone must not count as a visible AI lease. Test doubles omit it.
+    if not (
+        indicator
+        and indicator.thread.is_alive()
+        and not indicator.stopping
+        and indicator.error is None
+        and not getattr(indicator, "missed_ack", False)
+    ):
+        return False
+    idle = getattr(indicator, "idle", False)  # Read before the beat; see _park.
+    now = time.monotonic()
+    beat = indicator.heartbeat
+    if 0 <= now - beat <= 1.0:
+        return True
+    if not idle:
+        return False  # Busy but not beating: stalled.
+    ping_at = getattr(indicator, "ping_at", 0.0)
+    if ping_at <= beat:
+        indicator.ping()
+        return True
+    return 0 <= now - ping_at <= _PING_SECONDS
+
+
+@contextmanager
+def suspend_for_capture():
+    """Serialize captures and wait for the indicator to disappear first."""
+    with _capture_lock:
+        with _lock:
+            indicator = _instance
+        if indicator:
+            indicator.change(suspended=1)
+        try:
+            yield
+        finally:
+            if indicator:
+                indicator.change(suspended=-1)

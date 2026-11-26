@@ -12,6 +12,16 @@ class BootstrapTests(unittest.TestCase):
         self.assertIn("if (-not $Install -and -not $Start)", self.content)
         self.assertIn("Get-State", self.content)
 
+    def test_bundled_upstream_source_available(self):
+        source = SCRIPT.parents[2]
+        marker = source / "vendor/WINDOWS-MCP-COMMIT.txt"
+        bundled = source / "vendor/windows-mcp"
+        self.assertEqual(marker.read_text().strip(),
+                         "3333dbdac75ea3cae2a1eea00dccb207db9c5e4d")
+        self.assertTrue((bundled / "LICENSE.md").is_file())
+        self.assertTrue((bundled / "pyproject.toml").is_file())
+        self.assertIn('$packageSource = $bundledRepo',self.content)
+
     def test_pinned_isolated_install(self):
         self.assertIn("'clone', '--no-checkout'", self.content)
         self.assertIn("checkout -q --detach $UpstreamCommit", self.content)

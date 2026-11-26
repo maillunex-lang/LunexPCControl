@@ -1,0 +1,2 @@
+# Preserve the exact upstream snapshot, including its existing whitespace.
+vendor/windows-mcp/** -whitespace

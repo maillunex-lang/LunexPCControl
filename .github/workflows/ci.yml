@@ -1,0 +1,29 @@
+name: LunexPCControl source checks
+on:
+  push:
+    branches: [main]
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - name: Test dependencies
+        run: python -m pip install 'cryptography>=42,<50'
+      - name: Unit and integration tests
+        run: python -W ignore::ResourceWarning -m unittest discover -s tests -v
+      - name: Shell syntax
+        run: |
+          bash -n installer/bootstrap.sh
+          bash -n deploy/verify-gateway.sh
+      - name: No tracked private keys or credentials
+        run: |
+          if git ls-files | grep -E '(^|/)(\.env$|secrets/|.*\.pem$|.*\.key$|id_ed25519$)'; then
+            echo 'Potential sensitive file tracked' >&2
+            exit 1
+          fi
