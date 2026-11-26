@@ -7,6 +7,10 @@ from panel.auth import PanelAuth
 
 
 class PanelAuthTests(unittest.TestCase):
+    def test_unconfigured_auth_fails_closed(self):
+        self.assertFalse(PanelAuth().verify(None))
+        self.assertFalse(PanelAuth().verify("Basic YWRtaW46dGVzdA=="))
+
     def test_protected_secret_and_comparison(self):
         with tempfile.TemporaryDirectory() as d:
             p=Path(d)/'auth.key'

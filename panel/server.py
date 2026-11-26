@@ -184,7 +184,7 @@ class PanelHandler(BaseHTTPRequestHandler):
         if auth is None:
             self._write(503, b'Panel authentication not configured', "text/plain")
             return
-        if not auth.verify(self.headers.get("Authorization")):
+        if len(self.headers.get_all("Authorization", [])) != 1 or not auth.verify(self.headers.get("Authorization")):
             self._write(401, b'Access denied', "text/plain")
             return
         parsed = urlsplit(self.path)

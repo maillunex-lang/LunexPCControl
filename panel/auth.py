@@ -33,7 +33,7 @@ class PanelAuth:
 
     def verify(self, authorization):
         if self.secret is None:
-            return not self.configured
+            return False
         if not isinstance(authorization, str) or len(authorization) > 256:
             return False
         scheme, sep, supplied = authorization.partition(" ")
