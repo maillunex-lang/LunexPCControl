@@ -43,6 +43,17 @@ provides **online presence only** and does not grant desktop, files,
 shell or ChatGPT MCP tool permissions. See [GDD](docs/GDD-LUNEX-CONNECTOR-v0.1.md)
 and [quickstart](docs/CONNECTOR-QUICKSTART.md).
 
+## Encrypted migration and GitHub recovery
+
+Distributable first-party source and the pinned Windows-MCP snapshot are
+tracked here. Private databases, SSH/device keys, panel credentials and
+screenshot history are intentionally excluded.
+
+A separate encrypted v2 migration archive preserves the known Linux/VPS
+state and can be verified and staged into a private directory. It does
+not activate restored credentials or reconfigure Windows, DNS and HTTPS.
+See [state migration](docs/MIGRATE-STATE.md).
+
 ## Portable VPS install
 
 A single bootstrap command can install a NEW Ubuntu 24.04/26.04 VPS from

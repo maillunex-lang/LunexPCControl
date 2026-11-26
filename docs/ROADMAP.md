@@ -50,3 +50,16 @@ No embedded credentials; per-device authentication; least privilege; explicit ap
 - [ ] Durable, OS-native auto-start and safe signed updates
 - [ ] Full per-device command/file/input grants, emergency stop and audit
 - [ ] Deploy and verify ChatGPT MCP plugin independently
+
+
+## Reproducible VPS milestone (2026-11-26)
+
+- [x] Repair nested installer directory creation; include the current
+  connector/HTTPS templates in the installed file inventory
+- [x] Isolated fresh layout/import/HTTP authorization smoke test
+- [x] Encrypted v2 allowlisted state backup, integrity check and offline staging
+- [ ] Recover the archive key independently from secure off-VPS storage
+- [ ] Transactional activation of staged credentials and databases with rollback
+- [ ] Reconfigure Windows SSH host-key pins, TLS and DNS after moving VPS
+- [ ] Install and validate on another clean supported Ubuntu VPS
+- [ ] Verify full browser video and MCP functionality on that VPS

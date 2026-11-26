@@ -53,7 +53,11 @@ main; for production prefer a release-signed immutable bootstrap artifact
 in addition to a pinned source revision. No such production release has
 yet been published.
 
-The installer refuses existing deployments or conflicting paths. It creates
+The installer refuses existing deployments or conflicting paths and creates
+all destination directories, including the previously missing nested
+installer directory. Its inventory includes the optional connector service
+template and public HTTPS Nginx snippets as reference files without
+deploying or enabling them automatically. It creates
 a non-login service user, private SQLite state and audit log directories,
 installs the gateway and read-only panel plus their systemd units and
 logrotate, then performs systemd validation. It does NOT automatically
@@ -71,10 +75,12 @@ separate, reviewed operations.
 
 ## HTML panel
 
-The prototype dashboard listens only on 127.0.0.1:18881. It allows GET
-requests for the page and a sanitized JSON status. POST/PUT/DELETE are
-rejected. Device IDs, upstream credentials and client token digests
-never appear in its output.
+The authenticated owner portal listens only on 127.0.0.1:18881.
+It exposes read-only status, screen-history controls and narrowly scoped
+one-time Linux/Windows pairing and owner revocation operations.
+All owner mutations require authentication and a same-origin action header.
+New connector identities grant signed online presence only, not mouse,
+shell, files or MCP operations.
 
 Access with a local SSH forward or a private authenticated Termalin
 Internal Site. Never publish it through nginx unauthenticated.
@@ -111,9 +117,9 @@ plain-HTTP proxy is forbidden: Basic credentials would be exposed.
 The credential must be retrieved by the VPS owner in their own private
 shell and must not be copied into ChatGPT messages or automation logs.
 
-The panel accepts no remote commands and cannot enroll devices, change
-credentials or start a tunnel. It is not a replacement for independently
-enforced Windows user consent or the main MCP gateway policy.
+The panel accepts no arbitrary remote commands. Owner-approved
+pairing creates presence-only credentials; it does not replace independently
+enforced Windows user consent or the MCP gateway policy.
 
 ## Portable encrypted backup
 
@@ -131,6 +137,19 @@ keys to a public GitHub repository. The cryptography Python package is
 required to run the backup commands, but not to operate the local panel
 or gateway. Automated restore and separate Windows/private SSH identity
 migration remain to be built.
+
+## More complete v2 encrypted migration
+
+The original v1 archive described above only covers gateway registry
+and panel password. For a separate encrypted v2 archive including the
+known connector registry, Linux connector identity, screenshot history,
+backup keys and restricted tunnel authorized-key list, see
+[MIGRATE-STATE.md](MIGRATE-STATE.md).
+
+The migration tool verifies encryption and stages into a new private
+directory only; it does not overwrite live databases or automatically
+configure Windows, DNS, HTTPS or SSH. The encryption key must be backed
+up separately outside the VPS. Staging is not a production restore.
 
 ## Immutable update preparation
 

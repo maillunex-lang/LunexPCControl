@@ -18,7 +18,20 @@ class PortableInstallerTests(unittest.TestCase):
         self.assertIn("panel/auth.py", installer.FILES)
         self.assertIn("installer/backup.py", installer.FILES)
         self.assertIn("installer/upgrade.py", installer.FILES)
+        self.assertIn("installer/install.py", installer.FILES)
+        self.assertIn("server/connector_registry.py", installer.FILES)
+        self.assertIn("deploy/nginx-portalmcp.conf", installer.FILES)
+        self.assertIn("deploy/nginx-portalmcp-rate-limit.conf", installer.FILES)
+        self.assertIn("deploy/lunexpc-connector.service", installer.FILES)
         self.assertIn("server/sealed_token.py", installer.FILES)
+
+    def test_nested_installer_directory_is_created_before_file_install(self):
+        dirs = installer.install_directories()
+        self.assertIn(installer.APP_DIR / "installer", dirs)
+        self.assertIn(installer.APP_DIR / "panel", dirs)
+        self.assertIn(installer.APP_DIR / "server", dirs)
+        self.assertIn(installer.APP_DIR / "deploy", dirs)
+        self.assertEqual(dirs[0], installer.APP_DIR)
 
     def test_default_is_readonly(self):
         code = PATH.read_text()

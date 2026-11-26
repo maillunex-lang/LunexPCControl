@@ -14,7 +14,7 @@ jobs:
         with:
           python-version: '3.12'
       - name: Test dependencies
-        run: python -m pip install 'cryptography>=42,<50' 'Pillow>=10,<13'
+        run: python -m pip install -r requirements-vps.txt
       - name: Unit and integration tests
         run: python -W ignore::ResourceWarning -m unittest discover -s tests -v
       - uses: actions/setup-go@v5
@@ -27,6 +27,8 @@ jobs:
           go test -v ./...
           go vet ./...
           go build -trimpath -o /tmp/lunex-connector-ci .
+      - name: Portable layout and encrypted migration gate
+        run: python -W ignore::ResourceWarning -m unittest tests.test_portable_install_layout tests.test_state_migration -v
       - name: Shell syntax
         run: |
           bash -n installer/bootstrap.sh

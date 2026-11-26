@@ -40,6 +40,11 @@ FILES = {
     "installer/backup.py": APP_DIR / "installer/backup.py",
     "installer/install.py": APP_DIR / "installer/install.py",
     "installer/upgrade.py": APP_DIR / "installer/upgrade.py",
+    "installer/migration.py": APP_DIR / "installer/migration.py",
+    # These configs must remain portable without modifying active nginx.
+    "deploy/nginx-portalmcp.conf": APP_DIR / "deploy/nginx-portalmcp.conf",
+    "deploy/nginx-portalmcp-rate-limit.conf": APP_DIR / "deploy/nginx-portalmcp-rate-limit.conf",
+    "deploy/lunexpc-connector.service": APP_DIR / "deploy/lunexpc-connector.service",
     "deploy/lunexpc-panel.service": pathlib.Path("/etc/systemd/system/lunexpc-panel.service"),
     "deploy/lunexpc-gateway.service": pathlib.Path("/etc/systemd/system/lunexpc-gateway.service"),
     "deploy/lunexpc-gateway.logrotate": pathlib.Path("/etc/logrotate.d/lunexpc-gateway"),
@@ -96,13 +101,21 @@ def check_host():
     command("/usr/bin/python3", "-c", "import cryptography, PIL")
 
 
+def install_directories():
+    """Return every application directory, ordered parent before child."""
+    destinations = {APP_DIR}
+    destinations.update(dst.parent for dst in FILES.values()
+                        if dst.is_relative_to(APP_DIR))
+    return sorted(destinations, key=lambda item: (len(item.parts), str(item)))
+
+
 def apply_install():
     if os.geteuid() != 0:
         raise PermissionError("--apply requires root")
     if is_existing_install():
         raise RuntimeError("existing installation: use a dedicated upgrade command later")
     for target in FILES.values():
-        if target.exists():
+        if target.exists() or target.is_symlink():
             raise RuntimeError(f"target already exists: {target}")
     check_host()
     result = subprocess.run(["getent", "passwd", ACCOUNT], capture_output=True, text=True)
@@ -113,8 +126,11 @@ def apply_install():
     else:
         command("useradd", "--system", "--user-group", "--home-dir",
                 str(STATE_DIR), "--shell", "/usr/sbin/nologin", "--password", "!", ACCOUNT)
-    command("install", "-d", "-m", "0755", "-o", "root", "-g", "root", str(APP_DIR), str(APP_DIR / "server"),
-            str(APP_DIR / "deploy"), str(APP_DIR / "panel"))
+    # Every installed file must have a prepared parent. Missing installer/
+    # caused a partial fresh installation after service/state creation.
+    for folder in install_directories():
+        command("install", "-d", "-m", "0755", "-o", "root", "-g", "root",
+                str(folder))
     for folder in (STATE_DIR, LOG_DIR, STATE_DIR / "screens", STATE_DIR / "connectors"):
         command("install", "-d", "-m", "0700", "-o", ACCOUNT, "-g", ACCOUNT, str(folder))
     for source_name, target in FILES.items():

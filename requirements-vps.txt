@@ -1,0 +1,4 @@
+# Host may instead provide Ubuntu python3-cryptography and python3-pil.
+# CI-compatible constraints, NOT a frozen offline dependency lock.
+cryptography>=42,<50
+Pillow>=10,<13
