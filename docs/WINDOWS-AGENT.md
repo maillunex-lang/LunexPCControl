@@ -90,3 +90,21 @@ only inspects account, session, and tool availability. Install Python 3.14
 for that user and run the existing audited bootstrap in that account only
 after checking the output and deciding to provision it. Starting an agent
 requires the interactive user's explicit choice and per-session credentials.
+
+## Interactive user one-command setup (not run automatically)
+
+For a fresh Windows profile, from an interactive PowerShell window in the
+verified repository checkout, execute:
+```powershell
+.\agent\windows\Install-CurrentUser.ps1
+```
+This is a **read-only** check by default. After reviewing the output, explicitly
+run with `-Install` in that same user account to install Python 3.14
+using winget (user scope) if missing, then an isolated Windows-MCP environment
+in that user's LocalAppData. No service, firewall rule, scheduled task or
+remote connection is created. Starting the agent requires separate consent,
+a securely provided bearer token and an interactive desktop.
+
+During Termalin RDP validation the Windows Run dialog displayed a pre-existing
+unrelated error and subsequently mangled command input; the GUI check did not
+complete. Never treat this as evidence that the agent works under `lunexrdp`.
