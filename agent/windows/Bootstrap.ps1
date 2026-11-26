@@ -74,8 +74,13 @@ if ($Install) {
         $clone = Start-Process -FilePath (Get-Command git).Source -ArgumentList @('clone', '--no-checkout', '--', $UpstreamRepository, $repoDir) -NoNewWindow -Wait -PassThru
         if ($clone.ExitCode -ne 0) { throw 'Clone failed' }
     }
-    $checkout = Start-Process -FilePath (Get-Command git).Source -ArgumentList @('-C', $repoDir, 'checkout', '--detach', $UpstreamCommit) -NoNewWindow -Wait -PassThru
-    if ($checkout.ExitCode -ne 0) { throw 'Pinned checkout failed' }
+    $head = (& git -C $repoDir rev-parse HEAD)
+    if ($LASTEXITCODE -ne 0) { throw 'Cannot inspect checkout HEAD' }
+    if ($head -ne $UpstreamCommit) {
+        # Use -q to avoid informational native stderr that PS 5.1 treats as a terminating error.
+        & git -C $repoDir -c advice.detachedHead=false checkout -q --detach $UpstreamCommit
+        if ($LASTEXITCODE -ne 0) { throw 'Pinned checkout failed' }
+    }
     & $state.PythonExecutable -m venv $venvDir
     if ($LASTEXITCODE -ne 0) { throw 'Virtualenv creation failed' }
     $pip = Join-Path $venvDir "Scripts\python.exe"
