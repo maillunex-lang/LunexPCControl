@@ -76,10 +76,19 @@ Private state directory: /var/lib/lunexpc-gateway/oauth/.
 The encrypted v2 state migration includes the OAuth database and bridge key
 when present. Private files must never be committed to GitHub.
 
-Production installation must generate a new gateway client key for the
-OAuth bridge, save it as oauth/proxy.key mode 0600 under the gateway user,
-create oauth/issuer.sqlite under the same private directory, install
-the systemd unit and add the OAuth Nginx snippet to the intended HTTPS host.
+On a fresh VPS, prepare a private OAuth directory and provision the
+dedicated gateway client identity as the unprivileged service user.
+Provisioning never prints the token and refuses to overwrite existing
+identities:
+
+    sudo install -d -o lunexpc-gateway -g lunexpc-gateway -m 0700 /var/lib/lunexpc-gateway/oauth
+    sudo runuser -u lunexpc-gateway -- /usr/bin/python3 -B -m installer.oauth_setup provision
+    sudo runuser -u lunexpc-gateway -- /usr/bin/python3 -B -m installer.oauth_setup status
+
+The separate oauth/issuer.sqlite database will be created as mode 0600
+when the OAuth service first starts. Install its reviewed systemd unit
+and add the OAuth Nginx snippet only to the intended HTTPS host.
+Never edit the Windows SSH tunnel credentials as part of OAuth setup.
 
 Revoking access in the OAuth issuer /oauth/revoke invalidates the affected
 token. Removing the lunexpc-oauth.service or blocking the new Nginx routes

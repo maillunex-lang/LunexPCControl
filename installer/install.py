@@ -44,6 +44,7 @@ FILES = {
     "installer/upgrade.py": APP_DIR / "installer/upgrade.py",
     "installer/migration.py": APP_DIR / "installer/migration.py",
     "installer/chatgpt_key.py": APP_DIR / "installer/chatgpt_key.py",
+    "installer/oauth_setup.py": APP_DIR / "installer/oauth_setup.py",
     "deploy/nginx-lunexpc-chatgpt-alpha.conf": APP_DIR / "deploy/nginx-lunexpc-chatgpt-alpha.conf",
     # These configs must remain portable without modifying active nginx.
     "deploy/nginx-portalmcp.conf": APP_DIR / "deploy/nginx-portalmcp.conf",
