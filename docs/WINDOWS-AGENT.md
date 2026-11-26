@@ -22,3 +22,19 @@ desktop-control consent model. Never run with elevated privileges.
 There is deliberately **no reverse tunnel, remote HTTPS endpoint or scheduled
 task** in this stage. Do not publish the loopback MCP port. Real screenshot,
 mouse/keyboard and ChatGPT MCP tests remain pending.
+
+## Windows LUNEX validation, 2026-11-26
+
+The following checks were completed via Termalin on the user's Windows PC:
+- Python 3.14.10 installed in user scope without removing Python 3.12.
+- Original upstream pinned commit checked out at
+  `3333dbdac75ea3cae2a1eea00dccb207db9c5e4d`.
+- `Bootstrap.ps1 -Install` finished with exit code 0.
+- `windows-mcp --help` and `windows-mcp serve --help` returned successfully.
+- Upstream supports streamable HTTP, loopback binding, a bearer key, tool filtering,
+  control consent flags and explicit CORS restrictions.
+- There is no agent service, scheduled startup or reverse tunnel yet.
+- Live desktop tools and screenshot return path are not verified yet.
+
+A local user session is necessary for desktop capture and interaction. The
+noninteractive Termalin shell is appropriate for installing dependencies only.
