@@ -15,8 +15,15 @@ $ErrorActionPreference = 'Stop'
 function Find-Python314 {
     $launcher = Get-Command py -ErrorAction SilentlyContinue
     if ($launcher) {
-        $candidate = (& py -3.14 -c "import sys;print(sys.executable)" 2>$null)
-        if ($LASTEXITCODE -eq 0 -and $candidate) { return [string]($candidate | Select-Object -First 1) }
+        # Native py.exe may emit a non-terminating PowerShell error in 5.1.
+        # Check installed interpreters before probing a specific version.
+        $versions = (& py -0p 2>$null | Out-String)
+        if ($LASTEXITCODE -eq 0 -and $versions -match '-V:3\.14') {
+            $candidate = (& py -3.14 -c "import sys;print(sys.executable)" 2>$null)
+            if ($LASTEXITCODE -eq 0 -and $candidate) {
+                return [string]($candidate | Select-Object -First 1)
+            }
+        }
     }
     $python = Get-Command python3.14 -ErrorAction SilentlyContinue
     if ($python) { return $python.Source }
