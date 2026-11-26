@@ -151,7 +151,7 @@ footer{color:#8197ad;font-size:12px;margin:20px 0}
 </div><script>
 const el=id=>document.getElementById(id);
 let active=false, frames=0, transfer=0, controller=null, photoUrl=null;
-let streamWatchdog=null, streamRestarts=0, streamNonce=0, mode='stream';
+let streamWatchdog=null, streamRestarts=0, mode='stream';
 const pause=ms=>new Promise(resolve=>setTimeout(resolve,ms));
 function setStatus(message){el('state').textContent=message}
 async function loadDevices(){
@@ -219,9 +219,8 @@ function startStream(){
   if(!active || mode!=='stream')return;
   // Force browser to close previous stream before opening a new one.
   image.removeAttribute('src');
-  streamNonce++;
   const url='/portalmcp/api/live/stream/'+encodeURIComponent(device)+'/'+quality+'.mjpg';
-  image.src=url+'?session='+streamNonce;
+  image.src=url;
   setStatus('Подключение видеопотока...');
  }
  image.onload=()=>{

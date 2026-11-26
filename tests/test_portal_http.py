@@ -59,6 +59,9 @@ class PortalHttpTests(unittest.TestCase):
         html=self.get("/live",self.auth)[2]
         self.assertIn(b"X-LunexPC-LiveView",html)
         self.assertIn(b"pagehide",html)
+        self.assertIn(b"/api/live/stream/",html)
+        self.assertNotIn(b"?session=",html)
+        self.assertIn(b"image.src=url;",html)
         html2=self.get("/devices",self.auth)[2]
         self.assertIn("Мои компьютеры".encode(),html2)
         metadata=json.loads(self.get("/api/devices",self.auth)[2])
