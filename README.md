@@ -57,10 +57,11 @@ See [state migration](docs/MIGRATE-STATE.md).
 ## Private ChatGPT plugin Alpha 0.1
 
 The private read-only plugin source is in [chatgpt-plugin/](chatgpt-plugin/).
-It connects via a dedicated Bearer key over an exact POST-only HTTPS route
-to the existing Windows MCP gateway. Only Screenshot and ControlStatus
-are currently available. No shell, mouse, keyboard or file access is
-exposed. See [setup and security](docs/CHATGPT-ALPHA-01.md).
+Alpha 0.1.1 supports OAuth 2 with PKCE S256 and owner confirmation via
+the existing portal password, plus the previous dedicated API key for
+legacy clients. The HTTPS endpoint is an owner-controlled MCP bridge.
+Only Screenshot and ControlStatus are exposed: no shell, mouse, keyboard
+or file access. See [OAuth setup and security](docs/CHATGPT-OAUTH.md).
 
 ## Portable VPS install
 

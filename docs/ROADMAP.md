@@ -76,3 +76,17 @@ No embedded credentials; per-device authentication; least privilege; explicit ap
 - [ ] Owner must connect the private plugin using its dedicated bearer key
 - [ ] Verify screenshot and status from ChatGPT itself
 - [ ] Expand to device listing, monitor metrics and explicit input control
+
+
+## Private ChatGPT plugin Alpha 0.1.1 OAuth
+
+- [x] Protected-resource and authorization-server metadata definitions
+- [x] Dynamic client registration limited to known ChatGPT callbacks
+- [x] Owner-confirmed authorization-code flow with PKCE S256
+- [x] Short-lived resource-scoped bearer token and rotating refresh token
+- [x] Revocation, one-time authorization codes and CSRF cookie binding
+- [x] Separate read-only MCP bridge with legacy Alpha 0.1 compatibility
+- [x] Login, token, callback and malicious-redirect unit tests
+- [ ] Production OAuth service and HTTPS route deployment verification
+- [ ] Update private ChatGPT plugin to version 0.1.1
+- [ ] Owner sign-in and genuine tool-call verification from ChatGPT

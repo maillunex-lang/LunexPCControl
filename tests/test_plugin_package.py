@@ -11,14 +11,14 @@ class ChatGPTPluginPackageTests(unittest.TestCase):
         plugin=json.loads((PKG/"plugin.json").read_text())
         server=json.loads((PKG/"mcp.json").read_text())
         self.assertEqual(plugin["name"],"lunexpc-control")
-        self.assertEqual(plugin["version"],"0.1.0")
+        self.assertEqual(plugin["version"],"0.1.1")
         self.assertEqual(plugin["$schema"],"https://agent-plugins.org/schemas/1.0.0/plugin.schema.json")
         self.assertEqual(server["$schema"],"https://agent-plugins.org/schemas/1.0.0/mcp.schema.json")
         config=server["mcpServers"]["lunexpc-readonly"]
         self.assertEqual(config["url"],"https://rikagro.ru/lunexpc-mcp")
         self.assertEqual(config["type"],"streamable-http")
         self.assertEqual(config["extensions"]["com.openai"]["auth"],
-                         {"type":"api_key","headerScheme":"bearer"})
+                         {"type":"oauth","client":{"mode":"dcr"},"baseScopes":["desktop:read"]})
         self.assertLessEqual(len(plugin["extensions"]["com.openai"]["interface"]["shortDescription"]),30)
 
     def test_skills_mcp_metadata_and_no_secrets(self):

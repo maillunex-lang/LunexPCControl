@@ -59,7 +59,7 @@ class ChatGPTAlphaTests(unittest.TestCase):
         text = (ROOT / "deploy/nginx-lunexpc-chatgpt-alpha.conf").read_text()
         self.assertIn("location = /lunexpc-mcp {", text)
         self.assertIn("limit_except POST { deny all; }", text)
-        self.assertIn("proxy_pass http://127.0.0.1:18880/devices/lunex/mcp;", text)
+        self.assertIn("proxy_pass http://127.0.0.1:18882/lunexpc-mcp;", text)
         self.assertIn("proxy_set_header Authorization $http_authorization;", text)
         self.assertIn("location ^~ /lunexpc-mcp/ { return 404; }", text)
         self.assertNotIn("proxy_pass http://0.0.0.0", text)

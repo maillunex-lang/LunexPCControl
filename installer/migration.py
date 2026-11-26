@@ -39,6 +39,8 @@ OPTIONAL = frozenset({
     "var/lib/lunexpc-gateway/screens/history.sqlite",
     "var/lib/lunexpc-gateway/screens/history.key",
     "var/lib/lunexpc-agent/LunexPCControl/connector.json",
+    "var/lib/lunexpc-gateway/oauth/issuer.sqlite",
+    "var/lib/lunexpc-gateway/oauth/proxy.key",
     "var/lib/lunexpc-tunnel/.ssh/authorized_keys",
     "etc/lunexpc-gateway/backup.key",
 })

@@ -3,12 +3,15 @@ name: remote-monitor
 description: Use when the user requests a screenshot or current desktop-control status from their own Windows PC through LunexPCControl, or wants to open the owner's browser live-view portal.
 ---
 
-# LunexPCControl Alpha 0.1
+# LunexPCControl Alpha 0.1.1
 
 The remote MCP endpoint is hosted by the owner on their VPS and must be
-connected using the owner's private bearer key. Never ask the user to paste
-the key into a chat message or store it in plugin files. The plugin's
-connection screen is the appropriate place to enter the key.
+connected through the owner-approved OAuth 2 authorization-code flow
+with PKCE. On connect, open the OAuth login page at rikagro.ru, where
+the owner signs in with the existing LunexPCControl portal password and
+approves the read-only scope. Never ask the user to paste a password or
+a token into ChatGPT or plugin files. The previous private API-key mode
+is retained for already configured Alpha 0.1 clients.
 
 ## Available tools (confirmed by the gateway policy)
 
@@ -40,5 +43,5 @@ or ask for gateway/Windows upstream credentials.
 
 On authentication failures, guide the owner to the account connection
 flow and the documentation at
-https://github.com/maillunex-lang/LunexPCControl/blob/main/docs/CHATGPT-ALPHA-01.md.
+https://github.com/maillunex-lang/LunexPCControl/blob/main/docs/CHATGPT-OAUTH.md.
 Never provide or reveal credentials in a chat message.
