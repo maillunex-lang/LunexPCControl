@@ -36,6 +36,8 @@ class DashboardTests(unittest.TestCase):
         service=(Path(__file__).resolve().parents[1]/"deploy/lunexpc-panel.service").read_text()
         self.assertIn("--bind 127.0.0.1 --port 18881",service)
         self.assertIn("--auth-file /var/lib/lunexpc-gateway/panel-auth.key",service)
+        self.assertIn("ReadWritePaths=/var/lib/lunexpc-gateway/screens",service)
+        self.assertNotIn("ReadWritePaths=/var/lib/lunexpc-gateway\n",service)
         page=html_page().decode()
         self.assertIn("Центр управления",page)
         self.assertNotIn("eval(",page)

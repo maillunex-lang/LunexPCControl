@@ -16,6 +16,7 @@ Environment=PYTHONDONTWRITEBYTECODE=1
 NoNewPrivileges=yes
 PrivateTmp=yes
 ProtectSystem=strict
+ReadWritePaths=/var/lib/lunexpc-gateway/screens
 ProtectHome=yes
 PrivateDevices=yes
 ProtectKernelTunables=yes

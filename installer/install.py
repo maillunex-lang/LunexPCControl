@@ -110,7 +110,7 @@ def apply_install():
                 str(STATE_DIR), "--shell", "/usr/sbin/nologin", "--password", "!", ACCOUNT)
     command("install", "-d", "-m", "0755", "-o", "root", "-g", "root", str(APP_DIR), str(APP_DIR / "server"),
             str(APP_DIR / "deploy"), str(APP_DIR / "panel"))
-    for folder in (STATE_DIR, LOG_DIR):
+    for folder in (STATE_DIR, LOG_DIR, STATE_DIR / "screens"):
         command("install", "-d", "-m", "0700", "-o", ACCOUNT, "-g", ACCOUNT, str(folder))
     for source_name, target in FILES.items():
         mode = "0755" if source_name.endswith(".sh") else "0644"
