@@ -326,6 +326,19 @@ required autocomplete="current-password">
                     # An incorrect but PRESENT cookie is always rejected.
                     fallback = (not cookie and origin == ISSUER
                                 and fetch_site in ("same-origin", "same-site"))
+                    if store.previously_approved(fields["request_id"],fields["csrf"],cookie):
+                        self._send(200, """<!doctype html><html lang="ru"><head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>LunexPCControl — подтверждено</title></head><body>
+<h1>Вход уже подтверждён</h1>
+<p>Разрешение уже отправлено в ChatGPT. Вернись в приложение.
+Если подключение не завершилось, начни новый вход.</p>
+<p><a href="https://chatgpt.com/">Открыть ChatGPT</a></p>
+</body></html>""","text/html; charset=utf-8",headers={
+                            "Content-Security-Policy":
+                                "default-src 'none'; base-uri 'none'; frame-ancestors 'none'",
+                            "X-Frame-Options":"DENY"})
+                        return
                     if opaque_origin and not cookie:
                         raise OAuthError("access_denied", 403,
                                          reason="missing_cookie")

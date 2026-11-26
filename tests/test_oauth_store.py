@@ -175,6 +175,21 @@ class OAuthStoreTests(unittest.TestCase):
                                 trusted_cookie_fallback=True)
         self.assertIn("code",code)
 
+    def test_approved_receipt_is_bound_to_cookie_csrf_and_expires(self):
+        flow=self.start()
+        self.assertFalse(self.store.previously_approved(
+            flow["request_id"],flow["csrf"],flow["cookie"]))
+        self.approve(flow)
+        self.assertTrue(self.store.previously_approved(
+            flow["request_id"],flow["csrf"],flow["cookie"]))
+        self.assertFalse(self.store.previously_approved(
+            flow["request_id"],flow["csrf"],""))
+        self.assertFalse(self.store.previously_approved(
+            flow["request_id"],"x"*43,flow["cookie"]))
+        self.now+=61
+        self.assertFalse(self.store.previously_approved(
+            flow["request_id"],flow["csrf"],flow["cookie"]))
+
     def test_replay_refresh_does_not_resurrect_revoked_access(self):
         flow=self.start()
         issued=self.approve(flow)

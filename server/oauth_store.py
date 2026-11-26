@@ -111,6 +111,11 @@ class OAuthStore:
                         hash TEXT PRIMARY KEY, client_id TEXT NOT NULL,
                         expires INTEGER NOT NULL
                     )""")
+                # Track recent completed approvals without storing raw codes.
+                db.execute("""CREATE TABLE IF NOT EXISTS approved_requests (
+                    request_hash TEXT PRIMARY KEY, csrf_hash TEXT NOT NULL,
+                    cookie_hash TEXT NOT NULL, expires INTEGER NOT NULL
+                )""")
         finally:
             os.umask(old_umask)
         if self.path != ":memory:":
@@ -178,6 +183,7 @@ class OAuthStore:
         with self._db() as db:
             db.execute("BEGIN IMMEDIATE")
             db.execute("DELETE FROM pending WHERE expires<=?", (now,))
+            db.execute("DELETE FROM approved_requests WHERE expires<=?", (now,))
             if db.execute("SELECT count(*) FROM pending").fetchone()[0] >= 100:
                 raise OAuthError("temporarily_unavailable", 429)
             db.execute("""INSERT INTO pending
@@ -228,6 +234,9 @@ class OAuthStore:
                 else:
                     db.execute("DELETE FROM pending WHERE request_hash=?",
                                (digest(request_id),))
+                    db.execute("""INSERT INTO approved_requests
+                        (request_hash,csrf_hash,cookie_hash,expires) VALUES (?,?,?,?)""",
+                        (digest(request_id),row[0],row[1],min(now + 60,row[6])))
                     code = secrets.token_urlsafe(32)
                     db.execute("""INSERT INTO codes(hash,client_id,redirect_uri,challenge,expires)
                                   VALUES(?,?,?,?,?)""",
@@ -236,6 +245,19 @@ class OAuthStore:
         if reason is not None:
             raise OAuthError("access_denied", 403, reason=reason)
         return result
+
+    def previously_approved(self, request_id, csrf, cookie):
+        """Recognize an exact cookie-bound repeat without reissuing a code."""
+        if not all(isinstance(v,str) and TOKEN_RE.fullmatch(v)
+                   for v in (request_id,csrf,cookie)):
+            return False
+        with self._db() as db:
+            row=db.execute("""SELECT csrf_hash,cookie_hash,expires
+                FROM approved_requests WHERE request_hash=?""",
+                (digest(request_id),)).fetchone()
+        return bool(row and row[2] > int(self.clock())
+                    and hmac.compare_digest(digest(csrf),row[0])
+                    and hmac.compare_digest(digest(cookie),row[1]))
 
     def _issue_tokens(self, db, client, now):
         access, refresh = secrets.token_urlsafe(32), secrets.token_urlsafe(32)

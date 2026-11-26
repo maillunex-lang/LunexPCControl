@@ -277,6 +277,21 @@ class OAuthHTTPTests(unittest.TestCase):
             "Cookie":cookie,"Origin":"null","Sec-Fetch-Site":"cross-site"})
         self.assertEqual(status,403)
 
+    def test_duplicate_approval_never_reissues_code(self):
+        client=self.register()
+        form,cookie=self._new_approval_page(client)
+        headers={"Cookie":cookie,"Origin":"null","Sec-Fetch-Site":"cross-site"}
+        status,response,_=self.post("/oauth/approve",form,headers=headers)
+        self.assertEqual(status,303)
+        self.assertIn("code=",response["Location"])
+        status,response,body=self.post("/oauth/approve",form,headers=headers)
+        self.assertEqual(status,200)
+        self.assertIn("Вход уже подтверждён".encode(),body)
+        self.assertNotIn("Location",response)
+        self.assertNotIn(b"code=",body)
+        status,_,_=self.post("/oauth/approve",{**form,"csrf":"x"*43},headers=headers)
+        self.assertEqual(status,403)
+
     def test_cookie_missing_without_proven_origin_denied_html(self):
         client=self.register()
         form,_=self._new_approval_page(client)
