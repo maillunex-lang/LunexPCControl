@@ -46,3 +46,4 @@ class TunnelIdentityTests(unittest.TestCase):
   self.assertIn("/inheritance:r",s)
   self.assertIn("$session -le 0",s)
   self.assertIn("$env:LOCALAPPDATA",s)
+  self.assertIn("$MyInvocation.MyCommand.Path",s)

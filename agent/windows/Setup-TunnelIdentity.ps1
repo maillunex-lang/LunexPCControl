@@ -1,10 +1,13 @@
 # Per-user SSH identity. Never uses or modifies the default SSH key directory.
 [CmdletBinding()]
 param(
-    [string]$ScriptPath = (Join-Path $PSScriptRoot 'provision_device_tunnel.py')
+    [string]$ScriptPath = ''
 )
 Set-StrictMode -Version Latest
 $ErrorActionPreference = 'Stop'
+if (-not $ScriptPath) {
+    $ScriptPath = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) 'provision_device_tunnel.py'
+}
 $session = [Diagnostics.Process]::GetCurrentProcess().SessionId
 if (-not [Environment]::UserInteractive -or $session -le 0) {
     throw 'Run only in the intended interactive Windows user session'
